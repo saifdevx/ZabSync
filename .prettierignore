@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+secrets/
+.env
+.env.*
+package-lock.json
+.node-version
+tests/.database-*/

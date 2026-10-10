@@ -1,0 +1,11 @@
+:root {
+  --navy: #192e59;
+  --blue: #0b4ca1;
+  --green: #3ec44f;
+  --canvas: #f6f8fc;
+  --ink: #243650;
+  --muted: #65758d;
+  --border: #e3e9f2;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+}
