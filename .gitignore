@@ -9,3 +9,9 @@ secrets/
 .DS_Store
 coverage/
 tests/.database-*/
+
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.zip

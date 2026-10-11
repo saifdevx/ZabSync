@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { ClassFields, ClassSummary, RequestStatus } from './types';
+import { useAuth } from './auth';
 
 export function Spinner({ label = 'Loading…' }: { label?: string }) {
   return (
@@ -86,19 +87,55 @@ export function StatusBadge({ status }: { status: RequestStatus }) {
 export function Avatar({
   name,
   size = 'normal',
+  userId,
+  avatarVersion,
 }: {
   name: string;
   size?: 'small' | 'normal' | 'large';
+  userId?: string;
+  avatarVersion?: string | null;
 }) {
+  const auth = useAuth();
+  const key = `${auth.me?.user.id ?? ''}:${userId ?? ''}:${avatarVersion ?? ''}`;
+  const [picture, setPicture] = useState<{ key: string; url: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+    const controller = new AbortController();
+    if (userId && avatarVersion) {
+      auth
+        .requestBlob(
+          `/users/${encodeURIComponent(userId)}/avatar?v=${encodeURIComponent(avatarVersion)}`,
+          { signal: controller.signal },
+        )
+        .then((blob) => {
+          if (!active) return;
+          objectUrl = URL.createObjectURL(blob);
+          setPicture({ key, url: objectUrl });
+        })
+        .catch(() => {
+          if (active) setPicture(null);
+        });
+    } else setPicture(null);
+    return () => {
+      active = false;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [auth.requestBlob, userId, avatarVersion, key]);
   return (
     <span className={`avatar avatar-${size}`} aria-hidden="true">
-      {name
-        .trim()
-        .split(/\s+/)
-        .slice(0, 2)
-        .map((word) => word[0])
-        .join('')
-        .toUpperCase() || 'S'}
+      {picture?.key === key ? (
+        <img src={picture.url} alt="" onError={() => setPicture(null)} />
+      ) : (
+        name
+          .trim()
+          .split(/\s+/)
+          .slice(0, 2)
+          .map((word) => word[0])
+          .join('')
+          .toUpperCase() || 'S'
+      )}
     </span>
   );
 }

@@ -13,6 +13,8 @@ export interface AppUser {
   id: string;
   email: string;
   displayName: string;
+  username?: string | null;
+  avatarVersion?: string | null;
   role: 'student' | 'master';
   status: string;
 }
@@ -48,6 +50,8 @@ export interface ClassDetail {
     userId: string;
     email?: string;
     displayName: string;
+    username?: string | null;
+    avatarVersion?: string | null;
     role: ClassRole;
     status: string;
   }[];

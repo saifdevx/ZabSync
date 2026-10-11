@@ -1,11 +1,13 @@
-import Fastify, { LogController, type FastifyInstance } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
+import multipart from '@fastify/multipart';
 import type { Client } from '@libsql/client';
 import { stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { isLoopbackHost, loadConfig, validateConfig, type AppConfig } from './config.js';
 import {
@@ -13,12 +15,17 @@ import {
   createFirebaseVerifier,
   ensureIdentityMode,
   type Clock,
+  type CurrentUser,
   type TokenVerifier,
 } from './auth.js';
 import { migrate, openDatabase } from './db.js';
 import { seedDemo as seedDemoDatabase } from './demo.js';
 import { ApiError } from './errors.js';
 import { registerRoutes } from './routes.js';
+import { createPrivateStorage, loadStorageConfig, type PrivateStorage } from './storage.js';
+import { registerOperationsRoutes } from './operations.js';
+import { registerMaintenanceGate } from './site-settings.js';
+import { registerAcademicRoutes, seedAcademic } from './academic.js';
 
 export interface CreateAppOptions {
   config?: AppConfig;
@@ -30,6 +37,7 @@ export interface CreateAppOptions {
   verifyFirebaseToken?: TokenVerifier;
   logger?: boolean;
   staticRoot?: string;
+  storage?: PrivateStorage;
 }
 
 function isLoopbackPeer(address: string): boolean {
@@ -64,30 +72,69 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     },
   );
   const now = options.now || (() => new Date());
-  const db = options.db || (await openDatabase(config.databaseUrl, config.databaseAuthToken));
+  // Validate/create storage before opening an owned database. A storage configuration
+  // failure must not leave a database handle or new SQLite file behind.
+  const storageConfig = loadStorageConfig(config.nodeEnv === 'test' ? {} : process.env);
+  if (
+    config.nodeEnv === 'test' &&
+    config.databaseUrl.startsWith('file:') &&
+    !config.databaseUrl.includes(':memory:')
+  ) {
+    const databasePath = config.databaseUrl.startsWith('file://')
+      ? fileURLToPath(config.databaseUrl)
+      : resolve(config.databaseUrl.slice(5));
+    storageConfig.localDirectory = resolve(dirname(databasePath), 'private-storage');
+  }
+  if (config.authMode === 'demo' && storageConfig.driver !== 'local') {
+    throw new Error('Local demo mode requires local private file storage.');
+  }
+  const storage = options.storage || createPrivateStorage(storageConfig);
+  let db: Client;
+  try {
+    db = options.db || (await openDatabase(config.databaseUrl, config.databaseAuthToken));
+  } catch (error) {
+    await Promise.resolve(storage.close?.()).catch(() => undefined);
+    throw error;
+  }
   const ownsDatabase = !options.db;
   let closeFirebase: (() => Promise<void>) | undefined;
   let verifyFirebaseToken = options.verifyFirebaseToken;
+  let resourcesClosed = false;
+  const closeResources = async () => {
+    if (resourcesClosed) return;
+    resourcesClosed = true;
+    try {
+      if (closeFirebase) await closeFirebase();
+    } finally {
+      try {
+        await storage.close?.();
+      } finally {
+        if (ownsDatabase) db.close();
+      }
+    }
+  };
   const app = Fastify({
     logger: options.logger ?? config.nodeEnv !== 'test',
     logController: new LogController({ disableRequestLogging: true }),
     trustProxy: false,
-    bodyLimit: 16 * 1024,
-    requestTimeout: 30_000,
+    // Bounded JSON accommodates the advertised 10,000-character announcement limit, including Unicode.
+    bodyLimit: 64 * 1024,
+    // Allow a bounded 25 MiB upload on a slower mobile connection.
+    requestTimeout: 120_000,
   });
   try {
     await migrate(db);
     await ensureIdentityMode(db, config.authMode);
-    if (config.authMode === 'demo' && options.seedDemo !== false) await seedDemoDatabase(db, now());
+    if (config.authMode === 'demo' && options.seedDemo !== false) {
+      await seedDemoDatabase(db, now());
+      await seedAcademic(db, now());
+    }
     if (config.authMode === 'firebase' && !verifyFirebaseToken) {
       const provider = await createFirebaseVerifier(config);
       verifyFirebaseToken = provider.verify;
       closeFirebase = provider.close;
     }
-    app.addHook('onClose', async () => {
-      if (closeFirebase) await closeFirebase();
-      if (ownsDatabase) db.close();
-    });
+    app.addHook('onClose', closeResources);
 
     app.setErrorHandler((error, request, reply) => {
       if (error instanceof ApiError) {
@@ -105,24 +152,20 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       }
       const details = error as { code?: string; statusCode?: number; name?: string };
       if (details.code?.includes('SQLITE_CONSTRAINT')) {
-        return reply
-          .code(409)
-          .send({
-            error: {
-              code: 'conflict',
-              message: 'This change conflicts with the current data. Refresh and try again.',
-            },
-          });
+        return reply.code(409).send({
+          error: {
+            code: 'conflict',
+            message: 'This change conflicts with the current data. Refresh and try again.',
+          },
+        });
       }
       if (details.code?.includes('SQLITE_BUSY')) {
-        return reply
-          .code(503)
-          .send({
-            error: {
-              code: 'database_busy',
-              message: 'The application is busy. Please try again shortly.',
-            },
-          });
+        return reply.code(503).send({
+          error: {
+            code: 'database_busy',
+            message: 'The application is busy. Please try again shortly.',
+          },
+        });
       }
       const statusCode =
         typeof details.statusCode === 'number' &&
@@ -203,7 +246,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
             'https://securetoken.googleapis.com',
             'https://www.googleapis.com',
           ],
-          imgSrc: ["'self'", 'data:'],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+          workerSrc: ["'self'"],
+          manifestSrc: ["'self'"],
           fontSrc: ["'self'"],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
@@ -217,18 +262,87 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       referrerPolicy: { policy: 'no-referrer' },
       crossOriginEmbedderPolicy: false,
     });
+    // Only this request reuses its authentication result. Later requests always
+    // recheck revocation/account state, so suspension and representative handover
+    // remain immediate. Caching rejected promises also avoids a second provider call.
+    const authentication = createAuthenticator(db, config, now, verifyFirebaseToken);
+    const requestIdentities = new WeakMap<FastifyRequest, Promise<CurrentUser>>();
+    const authenticate = (request: FastifyRequest): Promise<CurrentUser> => {
+      let identity = requestIdentities.get(request);
+      if (!identity) {
+        identity = authentication(request);
+        requestIdentities.set(request, identity);
+      }
+      return identity;
+    };
+    const pathFor = (request: FastifyRequest) => new URL(request.url, 'http://localhost').pathname;
+    const isApiRequest = (request: FastifyRequest) => {
+      const path = pathFor(request);
+      return path === '/api' || path.startsWith('/api/');
+    };
+    const isPublicApi = (request: FastifyRequest) => {
+      const path = pathFor(request);
+      return (
+        (['GET', 'HEAD'].includes(request.method) &&
+          ['/api/config', '/api/health'].includes(path)) ||
+        (request.method === 'POST' && path === '/api/demo/session')
+      );
+    };
     await app.register(rateLimit, {
-      max: 300,
+      hook: 'preHandler',
+      max: (_request, key) => (String(key).startsWith('public:') ? 600 : 300),
       timeWindow: '1 minute',
-      keyGenerator: (request) => request.ip,
+      allowList: (request) => !isApiRequest(request) || request.method === 'OPTIONS',
+      keyGenerator: async (request) => {
+        if (!isApiRequest(request) || request.method === 'OPTIONS' || isPublicApi(request))
+          return `public:${request.ip}`;
+        try {
+          const user = await authenticate(request);
+          return `user:${user.id}`;
+        } catch {
+          // The route will return the cached authentication error. Counting a failed
+          // identity by peer IP prevents invented/rotating bearer strings from
+          // bypassing limits, while real classmates retain separate user buckets.
+          return `unauthenticated:${request.ip}`;
+        }
+      },
+    });
+    // A generous shared-peer bound applies before body parsing or provider work.
+    // This uses createRateLimit (not rateLimit), so it does not suppress the later
+    // account/endpoint limiter via the plugin's per-request "already ran" marker.
+    const peerBurst = app.createRateLimit({
+      max: 6000,
+      timeWindow: '1 minute',
+      keyGenerator: (request) => `peer:${request.ip}`,
+      allowList: () => false,
+    });
+    app.addHook('onRequest', async (request, reply) => {
+      if (!isApiRequest(request) || request.method === 'OPTIONS') return;
+      const limit = await peerBurst(request);
+      if (!limit.isAllowed && limit.isExceeded) {
+        reply.header('Retry-After', limit.ttlInSeconds);
+        throw new ApiError(
+          429,
+          'rate_limited',
+          'This network is sending many requests. Wait a moment and try again.',
+        );
+      }
     });
 
-    registerRoutes(app, {
+    await app.register(multipart, {
+      limits: { files: 1, fileSize: 25 * 1024 * 1024, fields: 8, fieldSize: 12000, parts: 9 },
+    });
+    const context = {
       db,
       config,
       now,
-      authenticate: createAuthenticator(db, config, now, verifyFirebaseToken),
-    });
+      authenticate,
+      storage,
+    };
+    registerMaintenanceGate(app, context);
+    registerRoutes(app, context);
+    registerOperationsRoutes(app, context);
+    registerAcademicRoutes(app, context);
 
     const staticRoot = options.staticRoot || resolve(process.cwd(), 'dist/client');
     const serveClient = await isDirectory(staticRoot);
@@ -252,9 +366,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     return app;
   } catch (error) {
     await app.close().catch(() => undefined);
-    // onClose is registered only after initial setup. The underlying close operations are idempotent.
-    if (closeFirebase) await closeFirebase().catch(() => undefined);
-    if (ownsDatabase) db.close();
+    // onClose is registered only after initial setup; this also covers early failures.
+    await closeResources().catch(() => undefined);
     throw error;
   }
 }

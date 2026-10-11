@@ -153,7 +153,7 @@ const envSchema = z.object({
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   FIREBASE_PRIVATE_KEY: z.string().optional(),
   FIREBASE_USE_APPLICATION_DEFAULT: z.enum(['true', 'false']).default('false'),
-  APP_NAME: z.string().default('CampusDesk'),
+  APP_NAME: z.string().default('XVIA'),
   UNIVERSITY_URL: z.string().url().default('https://szabist-isb.edu.pk/'),
 });
 
@@ -216,7 +216,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         : null,
     firebaseAdminCredential: null,
     firebaseUseApplicationDefault: false,
-    appName: 'CampusDesk',
+    appName: 'XVIA',
     universityUrl: 'https://szabist-isb.edu.pk/',
     timezone: UNIVERSITY_TIMEZONE,
     ...overrides,

@@ -8,6 +8,8 @@ import {
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { academicMigration } from './academic-migration.js';
+import { operationsMigration } from './operations-migration.js';
 
 export type Database = Pick<Client, 'execute'>;
 export type SqlRow = Row;
@@ -107,6 +109,21 @@ export async function migrate(db: Client): Promise<void> {
         sql: 'INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)',
         args: [new Date().toISOString()],
       });
+    }
+    for (const [version, statements] of [
+      [3, academicMigration],
+      [4, operationsMigration],
+    ] as const) {
+      const applied = await first(tx, 'SELECT version FROM schema_migrations WHERE version = ?', [
+        version,
+      ]);
+      if (!applied) {
+        for (const sql of statements) await tx.execute(sql);
+        await tx.execute({
+          sql: 'INSERT INTO schema_migrations(version,applied_at) VALUES (?,?)',
+          args: [version, new Date().toISOString()],
+        });
+      }
     }
   });
 }

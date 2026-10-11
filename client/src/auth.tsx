@@ -51,17 +51,18 @@ export function errorMessage(error: unknown): string {
   };
   if (code && messages[code]) return messages[code];
   if (error instanceof TypeError && /fetch/i.test(error.message))
-    return 'Could not reach CampusDesk. Check your connection and try again.';
+    return 'Could not reach XVIA. Check your connection and try again.';
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 }
 async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   const response = await fetch(`/api${path}`, {
     ...options,
     cache: 'no-store',
-    headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
-    },
+    headers,
   });
   const body = await response.json().catch(() => null);
   if (!response.ok)
@@ -82,6 +83,7 @@ interface AuthContextValue {
   verified: boolean;
   email: string;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
+  requestBlob: (path: string, options?: RequestInit) => Promise<Blob>;
   refreshMe: () => Promise<void>;
   demoLogin: (persona: Persona) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
@@ -92,7 +94,7 @@ interface AuthContextValue {
   logout: () => Promise<void>;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
-const DEMO_TOKEN_KEY = 'campusdesk.demo.token';
+const DEMO_TOKEN_KEY = 'xvia.demo.token';
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [configError, setConfigError] = useState('');
@@ -127,6 +129,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           auth,
           (user) => {
             if (!active) return;
+            // Clear account-scoped views in the same render as the identity transition.
+            generation.current++;
+            setMe(null);
+            setMeError('');
             setIdentity(user ? { user, verified: user.emailVerified } : null);
             setAuthReady(true);
           },
@@ -150,10 +156,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token =
         config?.authMode === 'demo' ? demoToken : await firebase?.currentUser?.getIdToken();
       if (!token) throw new ApiError('UNAUTHENTICATED', 'Please sign in to continue.', 401);
+      const headers = new Headers(options.headers);
+      headers.set('Authorization', `Bearer ${token}`);
       return fetchJson<T>(path, {
         ...options,
-        headers: { ...options.headers, Authorization: `Bearer ${token}` },
+        headers,
       });
+    },
+    [config?.authMode, demoToken, firebase],
+  );
+  const requestBlob = useCallback(
+    async (path: string, options: RequestInit = {}): Promise<Blob> => {
+      const token =
+        config?.authMode === 'demo' ? demoToken : await firebase?.currentUser?.getIdToken();
+      if (!token) throw new ApiError('UNAUTHENTICATED', 'Please sign in to continue.', 401);
+      const headers = new Headers(options.headers);
+      headers.set('Authorization', `Bearer ${token}`);
+      const response = await fetch(`/api${path}`, { ...options, headers, cache: 'no-store' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new ApiError(
+          body?.error?.code ?? 'REQUEST_FAILED',
+          body?.error?.message ?? 'The file could not be loaded.',
+          response.status,
+        );
+      }
+      return response.blob();
     },
     [config?.authMode, demoToken, firebase],
   );
@@ -217,12 +245,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (!config || !authReady || (loadingMe && !me) || (signedIn && verified && !me && !meError)),
     email: identity?.user.email ?? me?.user.email ?? '',
     request,
+    requestBlob,
     refreshMe,
     demoLogin: async (persona) => {
       const { token } = await fetchJson<{ token: string }>('/demo/session', {
         method: 'POST',
         body: JSON.stringify({ persona }),
       });
+      generation.current++;
+      setMe(null);
+      setMeError('');
       sessionStorage.setItem(DEMO_TOKEN_KEY, token);
       setDemoToken(token);
     },

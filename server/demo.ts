@@ -23,7 +23,7 @@ export const DEMO_USERS = {
   master: {
     id: '00000000-0000-4000-8000-000000000004',
     email: 'demo.master@szabist-isb.pk',
-    displayName: 'CampusDesk Owner',
+    displayName: 'XVIA Owner',
   },
   otherCr: {
     id: '00000000-0000-4000-8000-000000000005',

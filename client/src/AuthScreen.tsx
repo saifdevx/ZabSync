@@ -92,7 +92,7 @@ export function AuthScreen() {
   };
   return (
     <div className="auth-layout">
-      <section className="auth-story" aria-label="About CampusDesk">
+      <section className="auth-story" aria-label="About XVIA">
         <a
           className="university-logo-wrap"
           href={auth.config?.universityUrl}
@@ -109,7 +109,7 @@ export function AuthScreen() {
           <div className="brand-symbol">
             <GraduationCap size={32} />
           </div>
-          <span className="eyebrow">WELCOME TO CAMPUSDESK</span>
+          <span className="eyebrow">WELCOME TO XVIA</span>
           <h1>
             Your class.
             <br />
@@ -165,7 +165,7 @@ export function AuthScreen() {
             {isDemo
               ? 'Choose a role to explore a working class space. These are fictional accounts with local practice data.'
               : mode === 'register'
-                ? 'Create your CampusDesk account with your university email.'
+                ? 'Create your XVIA account with your university email.'
                 : mode === 'reset'
                   ? 'We’ll send a reset link to your university email.'
                   : 'Sign in to your university community.'}
@@ -333,7 +333,7 @@ export function AuthScreen() {
         </div>
         <footer className="auth-footer">
           <span>
-            CampusDesk <Sparkles size={12} />
+            XVIA <Sparkles size={12} />
           </span>
           <a href={auth.config?.universityUrl} target="_blank" rel="noopener noreferrer">
             University website <ExternalLink size={13} />

@@ -24,7 +24,7 @@ try {
 } catch (error) {
   if (runningApp) await runningApp.close().catch(() => undefined);
   console.error(
-    `CampusDesk could not start: ${error instanceof Error ? error.message : 'Unknown configuration error'}`,
+    `XVIA could not start: ${error instanceof Error ? error.message : 'Unknown configuration error'}`,
   );
   process.exitCode = 1;
 }

@@ -19,6 +19,8 @@ export interface CurrentUser {
   id: string;
   email: string;
   displayName: string;
+  username: string | null;
+  avatarVersion: string | null;
   role: 'student' | 'master';
   status: 'active' | 'suspended';
 }
@@ -68,6 +70,8 @@ export function publicUser(row: SqlRow): CurrentUser {
     id: stringValue(row.id),
     email: stringValue(row.email),
     displayName: stringValue(row.display_name),
+    username: row.username ? stringValue(row.username) : null,
+    avatarVersion: row.avatar_version ? stringValue(row.avatar_version) : null,
     role: row.role === 'master' ? 'master' : 'student',
     status: row.status === 'active' ? 'active' : 'suspended',
   };
@@ -115,7 +119,7 @@ export async function createFirebaseVerifier(
     : applicationDefault();
   const app = initializeApp(
     { credential, projectId: config.firebase!.projectId },
-    `campusdesk-${randomUUID()}`,
+    `xvia-${randomUUID()}`,
   );
   try {
     // Fail startup on invalid or unavailable credentials, rather than accepting traffic with broken authentication.

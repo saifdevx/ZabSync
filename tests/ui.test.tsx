@@ -150,7 +150,7 @@ test(
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /^Student/ }));
-    await screen.findByRole('heading', { name: 'Welcome, Areeba.' });
+    await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), Areeba\.$/ });
     fireEvent.click(screen.getByRole('button', { name: 'Create class' }));
     const createDialog = await screen.findByRole('dialog', { name: 'Create a class space' });
     fireEvent.change(within(createDialog).getByLabelText('Class name'), {
@@ -178,7 +178,7 @@ test(
     });
     const masterNavigation = await screen.findByRole('link', { name: 'Master Admin' });
     fireEvent.click(masterNavigation);
-    await screen.findByRole('heading', { name: 'A well-connected campus.' });
+    await screen.findByRole('heading', { name: 'Master control room' });
     const requestCard = (await screen.findByRole('heading', { name: '6F UI Test' })).closest(
       'article',
     );
@@ -201,11 +201,11 @@ test(
     fireEvent.change(screen.getByRole('combobox', { name: 'Switch demo role' }), {
       target: { value: 'student' },
     });
-    await screen.findByRole('heading', { name: 'Welcome, Areeba.' });
+    await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), Areeba\.$/ });
     const approvedClass = await screen.findByRole('link', { name: /6F UI Test/ });
-    assert.ok(within(approvedClass).getByText('Class representative'));
     fireEvent.click(approvedClass);
     await screen.findByRole('heading', { level: 1, name: '6F UI Test' });
+    assert.ok(screen.getByText('Class representative'));
     fireEvent.click(screen.getByRole('button', { name: 'Class details' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit details' }));
     const editDialog = await screen.findByRole('dialog', { name: 'Edit class details' });

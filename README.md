@@ -1,12 +1,14 @@
-# CampusDesk — Checkpoint 1 of 5
+# XVIA — Node Compass Task
 
-A working class-management foundation for **SZABIST Islamabad**, built with React, TypeScript, a Node.js API, and SQL. CampusDesk is a provisional app name; each class chooses its own name, program, semester, section, and description.
+## Checkpoint 2 of 5 · Complete cumulative application
 
-**Start with [docs/START_HERE.md](docs/START_HERE.md).** It contains beginner instructions for Windows, macOS, and Linux, plus common problems and a demo walkthrough.
+An independent class-management application for SZABIST Islamabad: university-email accounts, class spaces, subject resources, clear announcements, personal profiles, and a central Master Admin dashboard. This package contains Checkpoint 1 plus the Checkpoint 2 implementation. It does not require the earlier ZIP.
 
-## Run locally
+**Start with [docs/START_HERE.md](docs/START_HERE.md). Keeping your old data? Read [docs/UPGRADE_FROM_CHECKPOINT_1.md](docs/UPGRADE_FROM_CHECKPOINT_1.md) first.**
 
-Install **Node.js 24 LTS**, extract the ZIP, and open a terminal in this folder (the folder containing `package.json`). Run:
+### Try it locally
+
+Install Node.js **24**, extract the ZIP, and open a terminal in the folder containing `package.json`:
 
 ```sh
 npm ci
@@ -14,101 +16,92 @@ npm run setup:demo
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. Keep the terminal running. Press **Ctrl+C** to stop it.
+Open **http://127.0.0.1:5173** on the same computer. Keep the terminal open. Stop with **Ctrl+C**.
 
-The local demo offers Student, CR, GR, and Master Admin personas. Changes are saved in the local SQL database under `data/`; sample accounts are fictional. It does not send university emails or connect to a paid service. The demo is restricted to this computer. The app refuses to run demo authentication in production or against a remote database.
+The demo requires no Firebase, Turso, Cloudflare, or Play Store account. Its four fictional personas let you try Student, CR, GR, and Master Admin views. The database and uploaded files persist under `data/`. The first dependency installation needs internet. Demo identities are explicitly local-only; demo mode refuses production, remote origins/peers, remote databases, or R2 storage.
 
-To run the compiled version locally, stop the development server, then use:
+To try the compiled application, stop the development server and run:
 
 ```sh
 npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:3001**. A compiled build still follows your `.env` authentication configuration.
+Open **http://127.0.0.1:3001**. Service-worker installation is enabled for the compiled build in a secure browser context. Localhost is suitable for testing on that computer; use a deployed HTTPS address and real authentication for phones.
 
-## What works in this checkpoint
+## What is implemented
 
-| Area                   | Implemented behavior                                                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Account access         | Firebase email/password registration, verification, sign-in, password reset, and sign-out; configurable local demo for practice            |
-| University restriction | Server-verified Firebase identity, verified mailbox, and exact `szabist-isb.pk` domain before application access                           |
-| Class setup            | Request a configurable class space; Master Admin approves or declines; approval appoints the requester as CR                               |
-| Joining                | Permanent Class ID, random expiring join code, code rotation, and separate membership approval                                             |
-| Class management       | CR/GR edit their own class details, review join requests, and remove students; students read approved class data                           |
-| Representative changes | Master Admin assigns CR/GR from active members, replaces the previous representative, and preserves a CR for every class                   |
-| Profiles and people    | Edit your display name, view your classes and roles, and see a class roster; student views omit classmates’ email addresses                |
-| Request outcomes       | Track class requests and actual membership requests, including approval, rejection, and ended membership                                   |
-| Administration         | Class, user, request and audit listings with bounded pagination; UI filters are explicitly scoped to the displayed page                    |
-| Campus links           | Separate university website and official ZABDESK shortcuts; the portal opens externally                                                    |
-| Interface              | Responsive layout, mobile navigation, original supplied branding, keyboard focus, form validation, loading/error/empty states and feedback |
+| Area             | Working behavior                                                                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity         | Firebase registration, email verification, sign-in/reset/sign-out; exact verified `szabist-isb.pk` app access; explicit owner bootstrap                                                  |
+| Classes          | Configurable name/program/semester/section, Master approval, stable Class IDs, rotating expiring invites, membership approval, scoped CR/GR management                                   |
+| Subjects         | Names, codes, instructors, descriptions, five color accents; editing, search, trash and restoration                                                                                      |
+| Lecture files    | Private PDF/PPT/PPTX upload and download; title/description editing; 25 MiB/file, 100 MiB/class including trash; restoration and explicit permanent removal                              |
+| Announcements    | Subject, whole-class, and Master-only global audiences; title/details/priority/pinning; up to five same-audience resource attachments; editing, trash and restoration                    |
+| Discovery        | Visible updates on Home, scoped search across accessible content, private bookmarks, paginated lists                                                                                     |
+| Notifications    | In-app announcement inbox, unread count, mark-one/read-all; edits make a notice unread again                                                                                             |
+| Profiles         | Display name, optional unique `@username`, optional JPEG/PNG/WebP photo, replacement/removal; verified email and internal ID remain stable                                               |
+| Tutor            | Master edits a private draft, previews, publishes/unpublishes, adds subjects and HTTPS contact/booking links; students see published information                                         |
+| Master dashboard | Class approvals and representatives, member suspension/reactivation, global notices, recycle bin, audit history, implemented-feature switches, read-only maintenance                     |
+| Install          | Supplied university favicon/home-screen icon, manifest, supported-browser install prompt, iPhone instructions, link sharing, public offline reconnect page, explicit update confirmation |
+| Delivery         | Complete source, compiled client/server, exact lockfile, tests, GitHub CI workflow, configuration and upgrade guides                                                                     |
 
-The email domain is shared by students and staff. Mailbox verification establishes university identity; representatives must still check membership requests. A domain cannot establish current enrollment by itself.
+All subjects in a class share its approved membership. CP2 does not create a second membership system per subject. CR/GR publish the academic content; general student chat is not enabled.
 
-## What arrives in the remaining four checkpoints
+### Important distinctions
 
-This ZIP is the complete source for **Checkpoint 1**, not the final five-checkpoint application. Each later checkpoint will include the accumulated application and upgrade instructions.
+- **Bookmark:** remembers a file or announcement in your account while you have access. It does not download the content.
+- **Download:** saves an authorized file through the browser. Previously downloaded copies remain on a student's device after account removal.
+- **Home-screen installation:** opens the web application with an app-like presentation. CP2 still needs internet for accounts and academic data.
+- **Offline timetable and saved in-app academic content:** mandatory Checkpoint 3 work. The current service worker caches only a public reconnect page and its logo, never account/API/file responses.
+- **Feature controls:** enable/disable implemented functionality and manage content. New functionality is developed in code, checked, and deployed through GitHub; the dashboard does not generate arbitrary new code.
 
-| Checkpoint                        | Scope                                                                                                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **1 — Foundation**                | Accounts, class setup, permissions, invitations, profile and administration foundation                                                                             |
-| **2 — Academic content**          | Subjects, private files, class/subject/global announcements, resource search and bookmarks, editing/deletion, and in-app notifications                             |
-| **3 — Offline campus day**        | Weekly timetable, dated exceptions, quiz/assignment deadlines, installable PWA, offline reopening, cached academic data and explicitly saved files                 |
-| **4 — Assistance and operations** | Push and scheduled reminders, full owner controls, maintenance, quotas, backups, front-page PDF generator and constrained university/app chatbot                   |
-| **5 — Release**                   | End-to-end hardening, real-device/offline checks, Render/local deployment instructions, Capacitor Android project, signing/build guidance and final cumulative ZIP |
+## Security and providers
 
-**Offline timetable access is a required Checkpoint 3 feature.** This foundation does not yet cache class data, run a service worker, or reopen offline as an installed PWA. Its online/offline banner reports connection state. Running a local SQL database is different from an offline-capable web app.
+The server enforces permissions on every protected endpoint, rechecks writes in SQL transactions, and never trusts frontend role claims. Firebase proves mailbox control; because staff use the same domain, class membership approval remains a separate check. Users create an app-specific password, not their university mailbox password.
 
-## Connect real university accounts
+The application uses SQL through `@libsql/client`, with local SQLite for demonstration and an optional compatible Turso/libSQL database. Firebase Auth is the identity provider; Firestore is not the application database. File bytes use private local storage or a private Cloudflare R2 bucket. There is no Supabase dependency.
 
-Follow [docs/CONFIGURATION_CHECKLIST.md](docs/CONFIGURATION_CHECKLIST.md) to configure Firebase and optionally a compatible Turso/libSQL database. No credentials are included in this ZIP.
+See [configuration](docs/CONFIGURATION_CHECKLIST.md), [academic API/storage](docs/ACADEMIC_API.md), [operations](docs/OPERATIONS_API.md), and [security/offline design](docs/SECURITY_AND_OFFLINE_PLAN.md). No real credentials or database are included in this ZIP.
 
-- Use a separate clean database for Firebase identities. A seeded demo database cannot be reused as a real-account database.
-- The first owner is configured through **your own verified university email** in `MASTER_ADMIN_EMAIL`; no example address becomes owner automatically.
-- Keep server credentials in `.env` or your hosting environment. Firebase's client configuration is public by design, while service-account private keys and database tokens are server secrets.
-- Configure Firebase's password policy and authorized domains as described in the guide. Register an app-specific password; CampusDesk does not need the password for your university mailbox.
-- The API denies ineligible accounts access to application data. Auth-provider account creation itself has a separate control boundary; the configuration guide explains Firebase blocking functions if that stricter provider-level requirement is needed.
+## Project map
 
-For Render testing later, use real Firebase authentication, a persistent remote SQL database, HTTPS, and the deployed origin allowlist. A production build with local demo personas is not a public deployment configuration.
+| Path                                                      | Purpose                                                             |
+| --------------------------------------------------------- | ------------------------------------------------------------------- |
+| `client/src/App.tsx`                                      | Navigation, application shell, access state and central routes      |
+| `client/src/AcademicPages.tsx`                            | Subjects, resources, announcements, search, bookmarks and inbox     |
+| `client/src/OperationsPages.tsx`                          | Profiles, Tutor, settings and member status controls                |
+| `client/src/InstallPage.tsx`                              | Installation instructions, native prompt and explicit updates       |
+| `client/src/styles.css`, `academic.css`, `operations.css` | Responsive base and feature styles                                  |
+| `client/public/icons/`                                    | Original supplied logo and SVG container for scalable manifest use  |
+| `server/academic.ts`, `operations.ts`                     | Academic and owner/profile APIs                                     |
+| `server/storage.ts`                                       | Bounded private uploads, file validation, local/R2 adapters         |
+| `server/auth.ts`, `routes.ts`, `site-settings.ts`         | Provider identity, class permissions, maintenance and feature gates |
+| `server/db.ts`, `*-migration.ts`                          | Additive schema migrations 1–4                                      |
+| `tests/`                                                  | Security, upgrade, storage, workflow and simulated-DOM tests        |
+| `.github/`                                                | CI checks and dependency-update configuration                       |
+| `docs/`                                                   | Beginner, upgrade, provider, install and development guides         |
 
-## Project layout
-
-| Path                        | Purpose                                                                               |
-| --------------------------- | ------------------------------------------------------------------------------------- |
-| `client/src/`               | React pages, authentication state, reusable components and responsive CSS             |
-| `client/src/tokens.css`     | Core brand colors and font choices                                                    |
-| `client/public/branding/`   | The two original supplied university logos                                            |
-| `client/public/favicon.svg` | Simple app icon suited to small sizes                                                 |
-| `server/`                   | API, provider authentication, permissions, schema migrations and local fixtures       |
-| `tests/`                    | Security/API tests and simulated-DOM interface integration tests                      |
-| `scripts/`                  | Safe local-demo setup                                                                 |
-| `docs/`                     | Beginner guide, configuration, scope, security/offline design and verification record |
-| `.env.example`              | Configuration template with empty secrets                                             |
-| `package-lock.json`         | Exact dependencies for repeatable installation                                        |
-
-## Development commands
+## Build and verification
 
 ```sh
-npm run typecheck
-npm test
 npm run build
-npm run db:migrate
+npm test
+npm audit
 ```
 
-The migration command creates/upgrades the schema without seeding demo accounts. Normal API startup also applies schema migrations, then adds fictional fixtures only in demo mode. There is no destructive automatic database reset.
+Each build stamps a deterministic public-asset version into the service worker and generates browser dependency license notices. The web app and API are built together; serve the project as a **Node web service**, not only as a static site.
 
-See [docs/VERIFICATION.md](docs/VERIFICATION.md) for the checks performed and their limits. In particular, a passing build and automated tests do not constitute live Firebase/Turso, rendered mobile-browser, or Android verification.
+The checked-in CI uses read-only repository permissions and runs installation, build, tests and a high-severity production-dependency audit. See [docs/GITHUB_AND_DEPLOYMENT.md](docs/GITHUB_AND_DEPLOYMENT.md). No GitHub repository has been created or pushed, and no hosting deployment has occurred as part of this checkpoint.
 
-## Design and supplied assets
+See [docs/VERIFICATION.md](docs/VERIFICATION.md) for completed checks and limits. Simulated DOM testing is not a substitute for a real mobile browser. Live Firebase/Turso/R2 credentials, phone installation, load testing, Android builds and Play submission require later configured validation.
 
-The primary palette uses `#192E59` navy, `#0B4CA1` blue, white, and `#3EC44F` green, with pale blue backgrounds and restrained green accents. Body text uses darker slate tones. The two supplied logo images are preserved as originals and scaled in CSS; the favicon is a separate simple app mark. Higher-resolution university artwork can replace the current files later.
+## The five checkpoints
 
-Each client build also generates `dist/client/THIRD_PARTY_LICENSES.md`, retaining the license notices for the browser's bundled dependencies.
+1. **Foundation — delivered:** accounts, roles, class creation/approval, invitations, membership and basic administration.
+2. **Academic content and customization — delivered:** subjects/files/notices/bookmarks/inbox, XVIA branding, profiles/Tutor, central controls, and home-screen installation foundation.
+3. **Offline campus day:** weekly timetable, dated exceptions/extra classes, quiz/assignment deadlines, offline reopening with saved academic data/files, account-scoped storage and last-sync indicators.
+4. **Assistance and operations:** push/scheduled reminders, front-page PDF generator, bounded university/app chatbot, configurable budgets/quotas, backup/recovery and remaining operational controls.
+5. **Release:** final end-to-end/security/load/real-device/offline checks, deployment handoff, Capacitor Android packaging, signing, APK distribution and Play Store preparation.
 
-This is an independent student project. The university website link is the address supplied by the project owner. The separate [ZABDESK shortcut](https://zabdesk.szabist-isb.edu.pk/) follows the link on the [university's official ZABDESK page](https://szabist-isb.edu.pk/zabdesk/).
-
-## Keep before upgrading
-
-Keep your previous checkpoint folder and a database backup. Later checkpoints will include exact migration steps. Keep `.env`, service-account files, Android signing keys and real data private. Do not copy old `node_modules` or generated `dist` over a newer checkpoint.
-
-For the next checkpoint, useful inputs are your preferred app name and a few sample subject names and non-sensitive course documents. The front-page PDF template and university/creator knowledge for the chatbot are needed later.
+Tutor content starts as an unpublished blank draft so the owner can supply accurate information. The front-page sample and chatbot knowledge will be needed in Checkpoint 4. A signed APK and Play listing are not included yet.

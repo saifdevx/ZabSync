@@ -1,6 +1,6 @@
 # Configuration checklist
 
-Use [START_HERE.md](START_HERE.md) first. **You do not need any provider account to try the local demonstration.** This guide prepares the optional real-account mode; it is not an instruction to publish Checkpoint 1 to real students.
+Use [START_HERE.md](START_HERE.md) first. **You do not need any provider account to try the local demonstration.** This guide prepares the optional real-account mode; it is not an instruction to publish Checkpoint 2 to real students.
 
 ## A. Local demonstration
 
@@ -34,10 +34,10 @@ The project reads its configuration from `.env` in the project root. `.env.examp
 | `FIREBASE_USE_APPLICATION_DEFAULT`               | Use server-side Application Default Credentials      | Set `true` for the JSON-file method below                 |
 | `GOOGLE_APPLICATION_CREDENTIALS`                 | Path to your **private** service-account JSON        | The private file you downloaded from Firebase             |
 | `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | Alternative private Admin credential values          | Service account; leave empty with the JSON-file method    |
-| `APP_NAME`                                       | Display name                                         | Provisional default: `CampusDesk`                         |
+| `APP_NAME`                                       | Display name                                         | Provisional default: `XVIA`                               |
 | `UNIVERSITY_URL`                                 | University website shortcut                          | Supplied value: `https://szabist-isb.edu.pk/`             |
 
-The separate ZABDESK shortcut opens `https://zabdesk.szabist-isb.edu.pk/`, as linked by the [official university page](https://szabist-isb.edu.pk/zabdesk/). It opens the university's own site; CampusDesk does not store or fill in its login credentials.
+The separate ZABDESK shortcut opens `https://zabdesk.szabist-isb.edu.pk/`, as linked by the [official university page](https://szabist-isb.edu.pk/zabdesk/). It opens the university's own site; XVIA does not store or fill in its login credentials.
 
 Firebase web configuration is deliberately available to the browser. The Firebase Admin private key and database token are not. Never put an Admin key, database token, R2 secret, or OpenAI key in a public frontend variable. See [Firebase API keys](https://firebase.google.com/docs/projects/api-keys).
 
@@ -60,7 +60,7 @@ Keep a separate production project or review development-only settings before la
 This is separate from the public web-app configuration.
 
 1. In Firebase, open **Project settings → Service accounts**.
-2. Use **Generate new private key** and store the downloaded JSON in a private folder outside this project, for example a `CampusDeskSecrets` folder in your user directory.
+2. Use **Generate new private key** and store the downloaded JSON in a private folder outside this project, for example a `XVIASecrets` folder in your user directory.
 3. Do not edit the JSON or upload it to chat. Do not place it in `public/`, source control, or a shared ZIP.
 4. Set these fields in `.env`:
 
@@ -72,12 +72,12 @@ Set `GOOGLE_APPLICATION_CREDENTIALS` to that file's actual absolute path. Exampl
 
 ```dotenv
 # Windows: forward slashes avoid backslash-escape confusion.
-GOOGLE_APPLICATION_CREDENTIALS=C:/Users/YourName/CampusDeskSecrets/firebase-admin.json
+GOOGLE_APPLICATION_CREDENTIALS=C:/Users/YourName/XVIASecrets/firebase-admin.json
 ```
 
 ```dotenv
 # macOS example; Linux often starts with /home/yourname/ instead.
-GOOGLE_APPLICATION_CREDENTIALS=/Users/yourname/CampusDeskSecrets/firebase-admin.json
+GOOGLE_APPLICATION_CREDENTIALS=/Users/yourname/XVIASecrets/firebase-admin.json
 ```
 
 Use one actual path, not both examples. Enclose the value in double quotes if the path contains spaces. Leave `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` empty when using this method. Confirm that the JSON and the public web configuration belong to the same Firebase project.
@@ -108,7 +108,7 @@ npm run db:migrate
 npm run dev
 ```
 
-Do not run demo setup against the real database. Open `http://localhost:5173`, create your CampusDesk account, and verify the email message before accessing protected data. **Use a new password specifically for CampusDesk, not your university mailbox password.** Return to the app and refresh the verification state or sign in again.
+Do not run demo setup against the real database. Open `http://localhost:5173`, create your XVIA account, and verify the email message before accessing protected data. **Use a new password specifically for XVIA, not your university mailbox password.** Return to the app and refresh the verification state or sign in again.
 
 ## F. Optional: use a Turso database
 
@@ -148,3 +148,33 @@ Basic Firebase authentication can still contain an unsupported user's provider-s
 Checkpoint 5 provides the complete deployment instructions. A public deployment will require Firebase authentication, HTTPS, exact production origins and Firebase authorized domains, a persistent database, protected server secrets, and completed verification. Demo mode deliberately refuses production use.
 
 On a host that requires it, the API will use `HOST=0.0.0.0`, `NODE_ENV=production`, and the host-assigned `PORT`. Those settings alone do not make this checkpoint ready for a public rollout. R2, push delivery, AI, the PDF template, and Android setup are introduced in their respective checkpoints.
+
+## 8. Private lecture and profile-photo storage (Checkpoint 2)
+
+Local practice uses `STORAGE_DRIVER=local`. Files are stored below `STORAGE_LOCAL_DIR` (default `./data/storage`) and temporary uploads use `UPLOAD_TEMP_DIR` (default `./data/tmp`). Both must be outside the web assets. The API never serves this directory directly. Back it up with the SQL database.
+
+For an ephemeral hosted server use a private Cloudflare R2 bucket:
+
+```dotenv
+STORAGE_DRIVER=r2
+R2_ACCOUNT_ID=your-32-character-cloudflare-account-id
+R2_BUCKET=your-private-bucket-name
+R2_ACCESS_KEY_ID=your-bucket-scoped-access-key
+R2_SECRET_ACCESS_KEY=your-bucket-scoped-secret
+```
+
+Replace each placeholder privately in your hosting environment. Grant the server object read/write/delete access to this one bucket. Keep public access disabled: no public `r2.dev` URL or public custom-domain access for academic files. See [Cloudflare's S3 SDK example](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/) and [public access documentation](https://developers.cloudflare.com/r2/buckets/public-buckets/).
+
+This implementation sends file bytes through the authenticated Node API. It does not require browser-to-bucket CORS or expose presigned/public URLs. API hosting bandwidth and temporary disk still matter. R2 configuration is implemented but has not been exercised against your live account.
+
+Changing `STORAGE_DRIVER` or bucket does not migrate existing files. Copy the private object keys and bytes as part of a planned migration, then switch configuration. Keep the original store until validation passes. Database rows hold storage keys, not the file bytes.
+
+Current lecture limits are 25 MiB per file and 100 MiB per class, counting trash. Photo uploads accept JPEG/PNG/WebP up to 2 MiB and 16 megapixels and are re-encoded to WebP at a maximum 512×512 pixels. The limits are code constants in this checkpoint; dashboard budget/quota controls come in the operations phase. No aggregate 10 GB billing guarantee is enforced yet; check your provider usage before inviting many classes.
+
+## 9. Master controls and first hosted smoke check
+
+After your explicitly configured owner email is verified, open Master Admin. Its settings let you manage the implemented feature switches, Tutor publication, and read-only maintenance. These are database settings; do not put service-account keys or R2 credentials in Tutor text or other content fields.
+
+Test with two real eligible accounts in a separate pilot class: verify email delivery, create/approve a class, approve membership, post all intended announcement scopes, upload/download/delete a non-sensitive test file, replace/remove a profile photo, revoke membership, and confirm denied access. Test installation on an actual iPhone and Android browser at the deployed HTTPS origin. Keep this as a small pilot until those provider and device checks pass.
+
+For GitHub-based updates and the Render commands, follow [GITHUB_AND_DEPLOYMENT.md](GITHUB_AND_DEPLOYMENT.md). Do not deploy the local demo configuration.
