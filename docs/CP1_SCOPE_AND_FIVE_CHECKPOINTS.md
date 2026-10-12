@@ -1,128 +1,142 @@
-# Five-checkpoint roadmap — current Checkpoint 2
+# Five-checkpoint roadmap — current Checkpoint 3
 
-The application is **XVIA**, with **Node Compass Task** as its full product name. It serves SZABIST Islamabad through a reusable class template. Each class configures its own name, program, semester, section, subjects, and content; no fixed eight-semester catalogue is required.
+The application is **ZabSync**, a reusable class workspace for SZABIST Islamabad. Each class configures its own name, program, semester, section, subjects, and content. There is no fixed eight-semester catalogue to maintain before students can use it.
 
-This is the second of **five cumulative checkpoints**. Each delivers the complete source ZIP, setup/upgrade instructions, and verification results. Extract the new version into its own folder and follow its upgrade guide to retain private configuration/data. You do not need to merge snippets manually. Corrections stay within the same numbered checkpoint.
+This is the third of **five cumulative checkpoints**. Each release contains the complete source ZIP, setup and upgrade guidance, and verification results. Use the new release in its own folder and follow its upgrade guide to preserve private configuration, database records, and uploaded files. Corrections remain within the same numbered checkpoint.
 
 ## At a glance
 
-| Checkpoint | Main outcome                                                        | Status in this ZIP        |
-| ---------- | ------------------------------------------------------------------- | ------------------------- |
-| 1          | Accounts, class setup, roles, and admission                         | Included and retained.    |
-| 2          | Academic content, profiles, Tutor, owner controls, web installation | Current implementation.   |
-| 3          | Timetable, deadlines, and private offline academic access           | Required next checkpoint. |
-| 4          | Reminders, operations, PDF generator, bounded help/AI               | Planned.                  |
-| 5          | Release validation, deployment, and Android packaging               | Planned.                  |
+| Checkpoint | Main outcome                                                                                       | Status in this ZIP                                                      |
+| ---------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 1          | University accounts, class setup, membership, and permissions                                      | Included; roles and class creation have been updated in Checkpoint 3.   |
+| 2          | Subjects, private files, announcements, profiles, owner controls, and web installation             | Included; the Tutor section has been replaced by Developer information. |
+| 3          | Weekly timetable, dated changes, deadlines, private offline reading, and a clearer admin hierarchy | Current implementation.                                                 |
+| 4          | Durable reminders, production operations, front-page PDF generation, and bounded help/AI           | Planned.                                                                |
+| 5          | Release validation, hosting, and Android packaging                                                 | Planned.                                                                |
 
-Checkpoint 2 brings forward profile customization, Tutor editing, read-only maintenance, suspension, feature switches, and basic PWA installation. Later checkpoints extend these existing features and validate production behavior.
+The current role names are **Student**, **Class Admin**, and **Master Admin**. Existing CR and GR memberships are migrated to class admin memberships without discarding their IDs or history. Several admins can manage the same class. The previous class approval queue is retired; historical records remain available for audit and migration continuity.
 
-## Checkpoint 1 — accounts, roles, and class setup
+## Checkpoint 1 foundation — accounts and class membership
 
-The retained foundation provides:
+The retained foundation provides a responsive React interface, Node API, and persistent SQL. Local SQLite works without a cloud database; a libSQL-compatible Turso configuration path is included. Real authentication uses Firebase registration, verified-email sign-in, and password recovery. Three selectable local demo personas let you try Student, Class Admin, and Master Admin without external credentials.
 
-- Responsive React interface, Node API, and persistent SQL: local SQLite and a libSQL-compatible Turso configuration path.
-- Four selectable local demo personas without external account setup.
-- Firebase registration, verified-email login, and password recovery for real accounts.
-- Exact `szabist-isb.pk` email-domain enforcement before protected application access.
-- Student, class-scoped CR/GR, and global Master Admin permissions.
-- Class requests/owner approval; permanent Class IDs and expiring, replaceable join codes.
-- Separate membership requests and representative review.
-- Class/member controls, representative handover, and retained request history.
-- Official campus website and ZABDESK shortcuts.
+Ordinary protected accounts require a verified email on the exact `szabist-isb.pk` domain. A separate external owner is supported only by an exact verified email and pinned Firebase UID in private server settings; see [OWNER_ACCOUNT.md](OWNER_ACCOUNT.md). The university domain is shared by students and staff, so mailbox verification alone does not prove student enrollment. Class admins approve known classmates' join requests; an official student directory would be a separate future integration.
 
-The domain is shared by students and staff. Verification proves mailbox ownership; class approval supplies another eligibility check. Official enrollment integration would be a separate improvement.
+### Current class creation and join flow
 
-The website opens `https://szabist-isb.edu.pk/`. ZABDESK opens `https://zabdesk.szabist-isb.edu.pk/`, linked by the [official campus ZABDESK page](https://szabist-isb.edu.pk/zabdesk/). XVIA does not collect portal passwords or replace university authentication.
+The Master Admin can create the first class, add an already registered account, and assign that account as a class admin. Someone with an active admin membership in an active class can then create a new class directly. Ordinary students cannot create classes or promote themselves. For a Class Admin creator, the server creates the class and its creator's admin membership together; a separate owner approval is no longer required. Owner-created classes start with no members. The owner manages them through the semester directory and uses a separate university account for class participation.
 
-**Acceptance:** create/review class and membership requests, change representatives, and verify that students cannot edit settings or access another class. Real Firebase mode additionally needs configured credentials and actual university-mailbox verification/recovery checks before inviting real students.
+Each class has a permanent Class ID and a separate expiring, replaceable join code. Knowing the ID is not authority. Submitting a valid code creates a membership request; that class's admin or the owner approves it. Approval grants ordinary membership. Only the owner assigns or removes class admin roles. A person may administer one class and remain an ordinary student in another. See [ROLE_ADMIN_API.md](ROLE_ADMIN_API.md) for the full contract.
 
-## Checkpoint 2 — academic content and the requested additions
+The campus website and ZABDESK shortcuts remain available. ZabSync redirects to those university services; it does not collect portal passwords or replace university authentication.
 
-### Subjects, files, and announcements
+**Acceptance:** create a class as an authorized admin, request admission with a code, approve the member, and confirm that the student can read but cannot publish. Changing a role must affect an existing session on its next online request. Real Firebase use additionally requires private provider configuration and actual university-mailbox verification and recovery checks.
 
-Representatives can create/edit subjects with a name, optional course code, instructor, description, and color. Students read their class's subjects. Feeds currently let representatives and the owner publish while students read; general student chat is not implemented.
+## Checkpoint 2 foundation — organized academic content
 
-Private PDF/PPT/PPTX uploads support titles, descriptions, authorized downloads, search, bookmarks, edit, trash, restore, and separate permanent removal. Local storage works without cloud setup. A private R2 adapter is included for configuration; its live connection has not been tested. Current code-level defaults are **25 MiB per file and 100 MiB per class**, including trash. These are not runtime dashboard quota controls.
+Class admins and the owner create and edit subjects with names, course codes, instructors, descriptions, and colors. Students read subjects for their approved classes. Publishing is restricted to admins; a general student chat service is not implemented.
 
-Document validation checks type/structure and bounded PPTX metadata. It is not malware scanning; legacy PPT is not deeply inspected for macros. SQL/object storage are not one atomic transaction, so an interrupted upload may need private orphan-object reconciliation. See `docs/SECURITY_AND_OFFLINE_PLAN.md` and `docs/ACADEMIC_API.md`.
+Private PDF/PPT/PPTX resources support titles, descriptions, authorized download, search, bookmarks, edit, trash, restore, and separate permanent removal. Local storage works without cloud setup. The private R2 adapter is included, but its live connection has not been tested. Current code-level limits are **25 MiB per file and 100 MiB per class**, including trash and pending deletion. These are not dashboard quota controls.
 
-Announcements have three audiences:
+Document checks validate type and structure; they are not malware scanning. Legacy PPT macros are not deeply inspected. SQL and object storage do not share one atomic transaction, so interrupted uploads may need private orphan-object reconciliation. See [SECURITY_AND_OFFLINE_PLAN.md](SECURITY_AND_OFFLINE_PLAN.md) and [ACADEMIC_API.md](ACADEMIC_API.md).
 
-| Scope             | Who can publish/manage                  | Audience                                                          |
-| ----------------- | --------------------------------------- | ----------------------------------------------------------------- |
-| Subject           | That class's CR/GR and the Master Admin | Approved class members, in the subject feed and relevant notices. |
-| Class             | That class's CR/GR and the Master Admin | Everyone in that class, including the home feed.                  |
-| Whole application | Master Admin only                       | All active application accounts.                                  |
+### Announcement audiences
 
-Notices support priority, pinning, editing, trash/restore, and up to five same-audience attachments. Global notices cannot expose private class files. Class/global announcements appear on Home without requiring students to open a subject. In-app notifications have per-account read state; edits can make a notice unread again. These are not push notifications.
+| Scope             | Who can publish and manage               | Audience                                        |
+| ----------------- | ---------------------------------------- | ----------------------------------------------- |
+| Subject           | That class's admins and the Master Admin | Approved members of that class.                 |
+| Class             | That class's admins and the Master Admin | Everyone in the class, including the Home feed. |
+| Whole application | Master Admin only                        | Every active application account.               |
 
-Deleting a subject hides its content. Restoring it returns active children and leaves independently trashed items in trash. Restore a trashed parent before managing its individual files. Trashed files count toward storage until explicitly removed permanently.
+Announcements support priority, pinning, edit, trash and restore, and up to five same-audience attachments. Global notices cannot expose private class files. Class and global announcements appear on Home without opening a subject. In-app notifications have personal read status; edits can make a notice unread again. They are separate from device push notifications.
 
-### Profiles, Tutor, and one owner dashboard
+Deleting a subject hides its linked content. Restoring the subject returns its active children; independently trashed items remain trashed. Restore a deleted parent before managing its individual files. Trash counts toward class storage until an authorized admin removes the file permanently.
 
-Students can customize display name, unique optional username, and optional profile photo. Their verified email and immutable identity remain unchanged. Photos are decoded, bounded, re-encoded without original metadata, and privately served to authorized viewers.
+### Profiles and one owner dashboard
 
-The owner can edit a Tutor profile, keep a private draft, then publish it for students. The initial draft is empty; the owner supplies a real name, biography, subjects, and optional HTTPS contact/booking links.
+Students can customize their display name, optional unique username, and optional profile photo. Verified email and immutable identity remain unchanged. Photos are decoded, bounded, re-encoded without original metadata, and privately served to authorized viewers.
 
-The Master Admin area combines class requests, class/representative management, account suspension/reactivation, global notices, Tutor editing, feature switches, and read-only maintenance. Switches cover subjects, resources, announcements, Tutor, and profile photos, preserve data when disabled, and are enforced by the server.
+The owner dashboard now combines the semester-to-section directory, full class roster, account suspension and reactivation, class admin assignments, global notices, Developer editing, feature switches, and read-only maintenance. The directory only creates groups for semesters that have real classes; it is not a requirement to populate every semester.
 
-New software still requires code changes and deployment. GitHub supports reviewable updates; dashboard fields change content/settings and do not install arbitrary code. Suspension blocks future server access. Maintenance pauses non-owner changes while retaining reads and owner recovery controls.
+**Developer information replaces Tutor.** The owner can save a private draft and publish a name, biography, portfolio link, updates, and other app links through **Master Admin → Developer**. Students open the separate **Meet the Developer** page (`/developer`) from the sidebar or Get the App. Existing Tutor records remain legacy data and are not presented as a second active feature. No identity, qualification, contact, or portfolio content is invented.
 
-### Appearance and web installation
+Feature switches control subjects, resources, announcements, Developer information, profile photos, timetable, and deadlines. They retain the stored content and are enforced by the server. New software still requires code, review, build, and deployment through GitHub; the dashboard changes implemented content and settings.
 
-The interface uses XVIA branding, the supplied favicon/home-screen image, university artwork, additional subject/accent colors, mobile navigation, and restrained motion with reduced-motion support.
+Maintenance pauses non-owner writes while preserving reads and owner recovery controls. Suspension blocks the affected account's future protected requests. These controls do not erase files that someone already exported to a device.
 
-The manifest, conditional browser install prompt, iPhone instructions, shareable deployed-site link, and public reconnect page are included now. An iPhone user can open a deployed HTTPS website in Safari and add it to the home screen without an App Store release. Browser menus/support vary; real-device installation still needs validation. See `docs/INSTALL_AND_ANDROID.md`.
+**Acceptance:** an admin creates a subject, uploads a file, and posts a class notice; a member sees it on Home and downloads the file. A different class cannot access it by changing the URL. Verify parent trash and restore, bookmark visibility, profiles, Developer publication, feature switches, and maintenance. Test inventory and verification status are recorded separately.
 
-Checkpoint 2 caches only the public reconnect page and icon. It does not yet save the authenticated app, timetable, announcements, or lecture files for offline reopening. Private data will receive its dedicated, account-scoped offline implementation in Checkpoint 3.
+## Checkpoint 3 — timetable, deadlines, and actual offline reading
 
-**Acceptance:** a representative creates a subject, uploads a file, and posts a class notice; a classmate sees it on Home and can download the file; another class cannot access the file by changing its URL. Verify trash/restore, bookmark visibility after removal, profiles, Tutor draft/publication, feature switches, and maintenance. Automated coverage is in `tests/README.md`; provider/device status is in `docs/VERIFICATION.md`.
+### A recurring week with dated exceptions
 
-## Checkpoint 3 — timetable, deadlines, and offline academic access
+Class admins configure weekly sessions with a weekday, start and end times, optional subject, teacher, room, and notes. The schedule uses **Asia/Karachi**, independent of the server's timezone. Invalid dates and time ranges are rejected.
 
-This is the user's next priority: after initial online sign-in/synchronization, students must fully close and reopen XVIA without internet and read saved academic information.
+A dated cancellation or reschedule affects one occurrence. A rescheduled session preserves a marker on its original date and appears at its replacement date, including across week boundaries. Extra classes add a dated session without rewriting the recurring week. Exact duplicates are rejected; other overlaps are visibly flagged because parallel sessions may be intentional.
 
-Add the weekly timetable, dated changes, cancelled/extra classes, quiz/assignment deadlines, and personal reminder preferences. Use **Asia/Karachi** for schedules. A dated exception changes that occurrence without silently rewriting the recurring week.
+Edits and deletions use record versions. If two admins edit the same record, the later stale submission receives a conflict and must refresh. Changing a weekly weekday requires removing its dated overrides first. Removing a weekly entry hides its overrides; removing an override restores the underlying weekly occurrence.
 
-Extend the PWA foundation with account/class-partitioned stores for timetable, deadlines, and previously synchronized notices. Files become available offline only after an explicit save completes. Bookmarks remain distinct from downloaded bytes.
+### Quiz, assignment, and event deadlines
 
-Show connection status, last successful sync, file-save progress, storage usage, and removal/redownload controls. Startup must show valid saved content without waiting indefinitely for the API. Reconnection refreshes permissions/data and applies deletions. Shared academic editing initially requires a connection. Logout/account switching clears app-managed private stores.
+Admins create deadlines with a date, time, kind, optional subject, and details. Each member can mark a deadline done for themselves. Completion does not prove submission or grading. If an admin changes the deadline, its new version becomes incomplete until the member deliberately marks it done again.
 
-**Acceptance:** synchronize, save a PDF, fully close, disconnect, reopen, and read the timetable/deadlines/file. Make a change elsewhere and verify the offline copy is labelled stale; reconnect and receive it. Confirm a second account cannot read the first account's saved data. Test interrupted synchronization and browser storage loss. Closed-browser exact-time offline alerts are not promised.
+These lists and status controls are implemented now. Reliable push or closed-browser reminders remain Checkpoint 4 work. Announce important changes through the existing class announcement feature in the meantime. See [TIMETABLE_API.md](TIMETABLE_API.md) for all fields and endpoints.
 
-## Checkpoint 4 — reminders, operations, and student tools
+### Prepare a device for offline use
 
-Extend existing owner controls with durable reminders, opt-in push, configurable usage/storage budgets, audit review, backup/restore procedures, object reconciliation, and remaining recovery workflows. Basic maintenance and suspension already exist; production operations require more than those switches.
+After signing in online, a student can explicitly prepare offline access. Preparation saves authorized class information, all recurring timetable entries, every page of active dated exceptions and deadlines, notices, notifications, and resource metadata. Dated exceptions use the new `all=true` API option, so moving to another saved week does not silently omit an exception outside the initial week.
 
-Add the front-page PDF generator after receiving its approved design/fields. Aim for local generation once template/assets are available on the device. Match the supplied example instead of inventing a university format.
+Private files are saved separately through an explicit offline-file action after the full download succeeds. A bookmark saves a reference and does not download the document. The device page shows saved status, last synchronization time, file usage, refresh, individual removal, and clear-data controls.
 
-Add approved university, app, and creator help. Optional AI uses approved sources, per-account limits, a global budget, and server-only credentials. Restrict it to university/app questions and approved owner information; keep help usable with AI disabled. Course uploads and student data are not automatically sent to AI.
+Saved academic views are **read-only** and remain eligible for **seven days from the last successful full synchronization**. First login, new files, publishing, edits, joining classes, changing a profile, and marking deadlines done require internet. An expired or absent snapshot requires reconnection. The timetable uses the same pure schedule resolver online and offline.
 
-If student discussion is selected, add deliberate moderation and abuse controls. Representative publishing remains available without public-chat costs.
+App-managed private stores are isolated to one active account in a browser profile. Logout and account switching clear them; asynchronous work from an old account cannot repopulate the new account's store. Reconnection checks the authoritative visibility manifest, removes revoked scope and inaccessible files, and refreshes content. This cannot recall an already saved copy while a device is disconnected, or erase files exported outside the app.
 
-**Acceptance:** changed/cancelled deadlines do not produce obsolete reminders; backup/restore recovers the intended records/files; the PDF matches its sample; configured AI respects scope/limits. Core features must work rather than appear as decorative buttons.
+Current device safeguards are at most **20 classes**, **20 MiB of structured snapshot data**, and **150 MiB of explicitly saved files**. Ordinary students and Class Admins save their joined classes. The separate Master Admin console requires a connection and does not prepare offline academic snapshots. Browser storage may provide less space or be evicted; incomplete preparation must not be advertised as successful.
 
-## Checkpoint 5 — release validation, hosting, and Android
+### App installation and reopening
 
-Complete end-to-end permissions/recovery, realistic load checks, browser/phone usability, offline reopening, accessibility, error handling, and final setup/upgrade guidance. Validate the local/Render production path with configured services and HTTPS.
+The production service worker caches the public application shell and an explicit build-asset allowlist. Private data and file bytes live in the account-aware device store, not in an indiscriminate cache of authenticated API responses. The worker excludes APIs, authentication responses, private photos, and lecture downloads.
 
-Add the Capacitor Android project and document Android Studio build, API origin, authentication, downloads, notifications, storage, signing, and updates. A wrapper still needs the hosted backend and persistent database/files. Claim an APK/AAB build only after it actually succeeds.
+The manifest, supported-browser installation prompt, iPhone instructions, and shareable deployed-site link remain available. Students can open the HTTPS website and add it to their home screen. This does not require an App Store release and does not create an APK. A full offline reopening requires both a successfully installed public shell and a prepared private snapshot. Development hot reload is not the production service-worker test path.
 
-For students outside the Play Store path, provide a signed APK at an owner-controlled HTTPS link with version/checksum information after packaging and verification. A web-install link is already supported and is distinct from an APK download. No APK or App Store/Play listing is supplied in Checkpoint 2.
+**Acceptance:** prepare offline data, save a PDF, fully close the production app, disconnect, reopen, and read the timetable, deadlines, notices, and file. Check visible offline status and synchronization time; reconnect and apply changes, deletions, and revoked access. Confirm account isolation, snapshot expiry, interrupted preparation, incomplete download handling, and clear-data behavior. Automated API and device-store checks are included; physical-phone and actual browser installation validation remain separate release checks.
 
-Prepare the Play bundle and verify then-current developer-account, testing, privacy, and release requirements when the owner is ready. Signing keys and publication accounts remain private and owner-controlled.
+## Checkpoint 4 — reminders, student tools, and operational maturity
 
-**Acceptance:** complete student, representative, and owner flows pass; target devices work online and with specified saved data offline; upgrades preserve data; the configured deployment and Android package are validated.
+Add durable reminders with opt-in push and delivery-state handling. A changed or cancelled deadline must update its reminders. A closed offline browser is not promised an exact-time alert. The Android stage can add local notification support after device testing.
+
+Extend existing owner controls with configurable budgets and quotas, backup and restore procedures, object reconciliation, shared rate limits when running multiple servers, and remaining recovery workflows. Basic maintenance and suspension already exist; they do not replace production operations.
+
+Add the front-page PDF generator after receiving the approved design and fields. Aim for local generation after the template and assets are available on the device. Match the supplied example instead of inventing a university format.
+
+Add approved university, application, and developer help. Optional AI uses approved sources, per-account limits, a global budget, and server-only credentials. Restrict answers to that scope and keep ordinary help usable with AI disabled. Course uploads and student data are not automatically sent to AI.
+
+If public student discussion is selected, add moderation and abuse controls deliberately. Admin publishing remains usable without a real-time chat service.
+
+**Acceptance:** reminders respect deadline changes; backup and restore recover intended records and files; the generated PDF matches its sample; configured AI obeys scope and usage limits.
+
+## Checkpoint 5 — release, hosting, and Android
+
+Complete end-to-end permission and recovery checks, realistic load validation, browser and phone usability, offline reopening, accessibility, error handling, and final setup and upgrade guidance. Validate the local or Render production path using configured services and HTTPS.
+
+Add the Capacitor Android project and document Android Studio, API origin, authentication, downloads, notifications, device storage, signing, and updates. A wrapper still needs a hosted backend and persistent database/files. Claim an APK or AAB only after an actual successful build and verification.
+
+For students outside the Play Store path, provide a signed APK at an owner-controlled HTTPS link with version and checksum information after packaging. The website installation link is already supported and remains distinct from a downloadable Android package. **Checkpoint 3 contains no APK, AAB, or store listing.**
+
+Verify the then-current developer-account, testing, privacy, and release requirements when the owner is ready. Signing keys and publication accounts remain private and owner-controlled.
+
+**Acceptance:** Student, Class Admin, and Master Admin flows pass; target devices work online and with the promised saved data offline; upgrades preserve data; the configured deployment and Android package are validated.
 
 ## Resources needed later
 
-Nothing else is required to try the local Checkpoint 2 demo. For actual use and remaining checkpoints, supply:
+Nothing else is needed to try the local Checkpoint 3 demo. For actual class use and the remaining checkpoints, provide:
 
-- Real subject details, trusted lecture files, and section timetable/deadline examples. Add subjects/files directly through representative screens if convenient.
-- Tutor biography, offered subjects, and contact links, entered in the owner dashboard.
-- Front-page design and required quiz/assignment fields for Checkpoint 4.
-- Approved university/app/creator help and an AI budget, if enabling AI.
-- The real owner university email and provider/hosting configuration, entered privately using the guide.
-- Hosting and Android developer accounts when deployment/release testing is reached.
+- Real subject names, trusted lecture files, and section timetable/deadline details, entered through the class admin screens.
+- Developer biography, portfolio, update text, and other app links, entered through the owner dashboard.
+- The approved quiz/assignment front-page design and required fields for Checkpoint 4.
+- Approved university, application, and developer help content, plus an AI budget if enabling AI.
+- The owner's chosen verified email and provider/hosting configuration, entered privately using the setup guide. An external owner also needs the exact Firebase UID; ordinary accounts stay university-only.
+- Hosting and Android developer accounts when deployment and release testing begin.
 
-The supplied icon and XVIA/Node Compass Task names are already applied. A higher-resolution original is optional for later icon refinement. Do not send passwords, service-account JSON, database tokens, R2 secrets, signing keys, or API keys in chat.
+Never send passwords, service-account JSON, database tokens, R2 secrets, signing keys, or API keys in chat. Live Firebase, Turso, and R2 connectivity; physical devices; realistic load; native builds; and store publication are not implied by passing local automated tests. See [VERIFICATION.md](VERIFICATION.md) for the current verification boundary.

@@ -1,4 +1,4 @@
-name: XVIA checks
+name: ZabSync checks
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: xvia-${{ github.workflow }}-${{ github.ref }}
+  group: zabsync-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

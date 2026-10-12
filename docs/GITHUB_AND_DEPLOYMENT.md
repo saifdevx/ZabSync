@@ -19,7 +19,7 @@ The workflow uses the primary Actions repositories' current documented `v7` usag
 
 ## What the Master Admin dashboard controls
 
-The dashboard manages the app's implemented settings and data: account status, class approvals/representatives, global notices, published tutor information, feature switches, maintenance, and recycle-bin actions. Class-specific subject/resource controls are reached by opening a class from All classes.
+The dashboard manages the app's implemented settings and data: account status, the semester/section directory, student enrollment and Class Admin assignment, global notices, published developer information, feature switches, maintenance, and recycle-bin actions. Class-specific subject/resource controls are reached by opening a section from Semesters & sections.
 
 A feature switch is a setting for existing code. To add a brand-new capability, implement its API/UI/permissions, add a registered flag if needed, and commit/deploy the update. The dashboard does not run arbitrary uploaded code, store service-account keys, or create new backend features from a text prompt.
 
@@ -37,14 +37,14 @@ Use a **Node web service**, because the application contains a real API and priv
 | Health-check path | `/api/health`                                                        |
 | Bind host         | `HOST=0.0.0.0`                                                       |
 | Port              | Let Render supply `PORT`; do not hardcode the local development port |
-| App name          | `APP_NAME=XVIA`                                                      |
+| App name          | `APP_NAME=ZabSync`                                                   |
 | Environment       | `NODE_ENV=production`                                                |
 | Authentication    | `AUTH_MODE=firebase`                                                 |
 | Allowed origins   | Your exact HTTPS deployment origin in `ALLOWED_ORIGINS`              |
 | Database          | A persistent compatible Turso/libSQL database URL and token          |
 | File store        | `STORAGE_DRIVER=r2` plus a private bucket's server credentials       |
 
-Set Firebase's public app values and server Admin credentials according to `CONFIGURATION_CHECKLIST.md`. Add the deployed hostname to the Firebase authorized domains. `MASTER_ADMIN_EMAIL` must be your own real, verified `@szabist-isb.pk` address. No example email is the production owner.
+Set Firebase's public app values and server Admin credentials according to `CONFIGURATION_CHECKLIST.md`. Add the deployed hostname to the Firebase authorized domains. Use the exact verified owner address in `MASTER_ADMIN_EMAIL`. For a separate Gmail owner, also set its exact `MASTER_ADMIN_UID`; keep ordinary student accounts on `@szabist-isb.pk`. No example email is the production owner. Follow [OWNER_ACCOUNT](OWNER_ACCOUNT.md) for setup and controlled transfer from an existing owner.
 
 `npm ci --include=dev` is intentional in the build step: TypeScript/Vite are build-time dependencies even when the runtime environment is production. Do not run `setup:demo` on the host. The application rejects production demo mode.
 
@@ -70,4 +70,4 @@ Checkpoint 5 will add the Capacitor Android project and build/signing instructio
 
 ## Before the first student pilot
 
-Complete live provider verification and actual device installation, upload/download/profile/permission checks with a small pilot class. The final release checkpoint adds broader offline/load/mobile checks, backup recovery, and Android testing. The development team has not connected your external accounts or deployed this checkpoint on your behalf.
+Complete live provider verification and actual device installation, upload/download/profile/permission checks with a small pilot class. Checkpoint 3 includes a real explicit offline snapshot/file store and production shell reopening; test those on the deployed origin as well. The final release checkpoint adds broader load/mobile and Android checks, with backup/recovery work in Checkpoint 4. The development team has not connected your external accounts or deployed this checkpoint on your behalf.

@@ -8,7 +8,7 @@ const validClassUpdate = {
   program: 'BS Computer Science',
   semester: 5,
   section: '5D',
-  description: 'An authorized representative may update these class details.',
+  description: 'An authorized class admin may update these class details.',
 };
 
 test('protected routes require a real bearer session and reject identity/role headers', async (t) => {
@@ -48,7 +48,7 @@ test('protected routes require a real bearer session and reject identity/role he
     headers: {
       ...bearer(student),
       'x-role': 'master',
-      'x-user-role': 'cr',
+      'x-user-role': 'admin',
       'x-user-id': DEMO_USERS.master.id,
       'x-admin': 'true',
     },
@@ -56,19 +56,19 @@ test('protected routes require a real bearer session and reject identity/role he
   });
   expectForbidden(spoofedWrite);
 
-  // The same payload succeeds for an authorized representative. A validation
+  // The same payload succeeds for an authorized class admin. A validation
   // failure therefore cannot masquerade as a successful access-control check.
-  const cr = await demoToken(app, 'cr');
+  const admin = await demoToken(app, 'admin');
   const allowedWrite = await app.inject({
     method: 'PATCH',
     url: `/api/classes/${DEMO_CLASS_ID}`,
-    headers: bearer(cr),
+    headers: bearer(admin),
     payload: validClassUpdate,
   });
   expectSuccess(allowedWrite);
 });
 
-test('a student cannot read another class or use representative/admin endpoints', async (t) => {
+test('a student cannot read another class or use class admin/owner endpoints', async (t) => {
   const app = await createTestApp(t);
   const student = await demoToken(app, 'student');
 
@@ -101,20 +101,20 @@ test('a student cannot read another class or use representative/admin endpoints'
   });
   expectSuccess(permittedMasterPanel);
 
-  const cr = await demoToken(app, 'cr');
-  const representativeInvite = await app.inject({
+  const admin = await demoToken(app, 'admin');
+  const adminInvite = await app.inject({
     method: 'POST',
     url: `/api/classes/${DEMO_CLASS_ID}/invite`,
-    headers: bearer(cr),
+    headers: bearer(admin),
   });
-  expectSuccess(representativeInvite);
-  assert.ok(representativeInvite.json<{ code: string }>().code);
+  expectSuccess(adminInvite);
+  assert.ok(adminInvite.json<{ code: string }>().code);
 });
 
-test('CR and GR permissions are scoped to approved class membership', async (t) => {
+test('Class admin permissions are scoped to approved class membership', async (t) => {
   const app = await createTestApp(t);
 
-  for (const persona of ['cr', 'gr'] as const) {
+  for (const persona of ['admin'] as const) {
     const token = await demoToken(app, persona);
     const allowed = await app.inject({
       method: 'PATCH',
@@ -151,7 +151,7 @@ test('CR and GR permissions are scoped to approved class membership', async (t) 
 test('students can see a minimal roster without member emails, pending requests or invitations', async (t) => {
   const app = await createTestApp(t);
   const student = await demoToken(app, 'student');
-  const cr = await demoToken(app, 'cr');
+  const admin = await demoToken(app, 'admin');
 
   const studentView = await app.inject({
     method: 'GET',
@@ -181,15 +181,12 @@ test('students can see a minimal roster without member emails, pending requests 
   assert.deepEqual(studentBody.pendingMembers, []);
   assert.equal(studentBody.invite, null);
 
-  const representativeView = await app.inject({
+  const adminView = await app.inject({
     method: 'GET',
     url: `/api/classes/${DEMO_CLASS_ID}`,
-    headers: bearer(cr),
+    headers: bearer(admin),
   });
-  expectSuccess(representativeView);
-  const representativeBody = representativeView.json<{ members: unknown[] }>();
-  assert.ok(
-    representativeBody.members.length > 0,
-    'The representative should have a useful member directory.',
-  );
+  expectSuccess(adminView);
+  const adminBody = adminView.json<{ members: unknown[] }>();
+  assert.ok(adminBody.members.length > 0, 'The class admin should have a useful member directory.');
 });

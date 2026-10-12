@@ -21,6 +21,7 @@ export interface CurrentUser {
   displayName: string;
   username: string | null;
   avatarVersion: string | null;
+  rollNumber: string | null;
   role: 'student' | 'master';
   status: 'active' | 'suspended';
 }
@@ -28,15 +29,17 @@ export interface CurrentUser {
 export type TokenVerifier = (token: string) => Promise<VerifiedIdentity>;
 export type Clock = () => Date;
 
+export interface AcceptedIdentity {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
 export function hashSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex');
 }
 
-export function assertUniversityIdentity(identity: VerifiedIdentity): {
-  id: string;
-  email: string;
-  displayName: string;
-} {
+function assertVerifiedIdentity(identity: VerifiedIdentity): AcceptedIdentity {
   requireCondition(
     typeof identity.uid === 'string' && identity.uid.length > 0 && identity.uid.length <= 128,
     401,
@@ -47,13 +50,11 @@ export function assertUniversityIdentity(identity: VerifiedIdentity): {
     identity.email_verified === true,
     403,
     'email_not_verified',
-    'Verify your university email before continuing.',
+    'Verify your email before continuing.',
   );
   const email = typeof identity.email === 'string' ? identity.email.trim().toLowerCase() : '';
   requireCondition(
-    email.length <= 254 &&
-      z.email().safeParse(email).success &&
-      email.split('@')[1] === ALLOWED_EMAIL_DOMAIN,
+    email.length <= 254 && z.email().safeParse(email).success,
     403,
     'university_email_required',
     `Use your verified @${ALLOWED_EMAIL_DOMAIN} university email.`,
@@ -65,6 +66,44 @@ export function assertUniversityIdentity(identity: VerifiedIdentity): {
   return { id: identity.uid, email, displayName };
 }
 
+/** University account eligibility is independent of class membership or admin powers. */
+export function assertUniversityIdentity(identity: VerifiedIdentity): AcceptedIdentity {
+  const accepted = assertVerifiedIdentity(identity);
+  requireCondition(
+    accepted.email.split('@')[1] === ALLOWED_EMAIL_DOMAIN,
+    403,
+    'university_email_required',
+    `Use your verified @${ALLOWED_EMAIL_DOMAIN} university email.`,
+  );
+  return accepted;
+}
+
+export function isConfiguredOwnerIdentity(
+  identity: Pick<AcceptedIdentity, 'id' | 'email'>,
+  config: Pick<AppConfig, 'masterAdminEmail' | 'masterAdminUid'>,
+): boolean {
+  return Boolean(
+    config.masterAdminEmail &&
+    identity.email === config.masterAdminEmail &&
+    (!config.masterAdminUid || identity.id === config.masterAdminUid),
+  );
+}
+
+/** The one external owner exception requires both server-pinned claims, never a client role. */
+export function assertApplicationIdentity(identity: VerifiedIdentity, config: AppConfig) {
+  const accepted = assertVerifiedIdentity(identity);
+  const university = accepted.email.split('@')[1] === ALLOWED_EMAIL_DOMAIN;
+  const configuredOwner = isConfiguredOwnerIdentity(accepted, config);
+  requireCondition(
+    (university || (configuredOwner && Boolean(config.masterAdminUid))) &&
+      !(accepted.email === config.masterAdminEmail && config.masterAdminUid && !configuredOwner),
+    403,
+    'university_email_required',
+    `Use an eligible verified @${ALLOWED_EMAIL_DOMAIN} account or the configured owner sign-in.`,
+  );
+  return { ...accepted, configuredOwner, externalOwner: !university };
+}
+
 export function publicUser(row: SqlRow): CurrentUser {
   return {
     id: stringValue(row.id),
@@ -72,9 +111,20 @@ export function publicUser(row: SqlRow): CurrentUser {
     displayName: stringValue(row.display_name),
     username: row.username ? stringValue(row.username) : null,
     avatarVersion: row.avatar_version ? stringValue(row.avatar_version) : null,
+    rollNumber: universityRollNumber(stringValue(row.email)),
     role: row.role === 'master' ? 'master' : 'student',
     status: row.status === 'active' ? 'active' : 'suspended',
   };
+}
+
+/** A display aid only; a numeric mailbox is not evidence of enrollment or authority. */
+export function universityRollNumber(email: string): string | null {
+  const normalized = email.trim().toLowerCase();
+  const parts = normalized.split('@');
+  const [local, domain] = parts;
+  return parts.length === 2 && domain === ALLOWED_EMAIL_DOMAIN && /^\d+$/.test(local || '')
+    ? local!
+    : null;
 }
 
 export async function audit(
@@ -111,9 +161,11 @@ export async function ensureIdentityMode(db: Client, mode: 'demo' | 'firebase'):
   });
 }
 
-export async function createFirebaseVerifier(
-  config: AppConfig,
-): Promise<{ verify: TokenVerifier; close: () => Promise<void> }> {
+export async function createFirebaseVerifier(config: AppConfig): Promise<{
+  verify: TokenVerifier;
+  lookupUser: (uid: string) => Promise<VerifiedIdentity & { disabled: boolean }>;
+  close: () => Promise<void>;
+}> {
   const credential = config.firebaseAdminCredential
     ? cert(config.firebaseAdminCredential)
     : applicationDefault();
@@ -140,6 +192,16 @@ export async function createFirebaseVerifier(
         name: decoded.name as string | undefined,
       };
     },
+    lookupUser: async (uid) => {
+      const user = await getAuth(app).getUser(uid);
+      return {
+        uid: user.uid,
+        email: user.email,
+        email_verified: user.emailVerified,
+        name: user.displayName,
+        disabled: user.disabled,
+      };
+    },
     close: () => deleteApp(app),
   };
 }
@@ -150,7 +212,7 @@ async function getOrCreateFirebaseUser(
   config: AppConfig,
   now: Date,
 ): Promise<CurrentUser> {
-  const accepted = assertUniversityIdentity(identity);
+  const accepted = assertApplicationIdentity(identity, config);
   const current = await first(db, 'SELECT * FROM users WHERE id = ?', [accepted.id]);
   if (current) {
     requireCondition(
@@ -165,11 +227,18 @@ async function getOrCreateFirebaseUser(
       'account_suspended',
       'This account is suspended. Contact the application owner.',
     );
-    const mightBootstrap = accepted.email === config.masterAdminEmail && current.role !== 'master';
+    const mightBootstrap = accepted.configuredOwner && current.role !== 'master';
     if (current.email === accepted.email && !mightBootstrap) return publicUser(current);
   }
   return inWriteTransaction(db, async (tx) => {
     let user = await first(tx, 'SELECT * FROM users WHERE id = ?', [accepted.id]);
+    const existingMaster = await first(tx, "SELECT id FROM users WHERE role = 'master' LIMIT 1");
+    requireCondition(
+      !accepted.externalOwner || !existingMaster || existingMaster.id === accepted.id,
+      403,
+      'owner_transfer_required',
+      'This application already has an owner. Complete the documented server-side owner transfer before using a different owner account.',
+    );
     const sameEmail = await first(tx, 'SELECT id FROM users WHERE email = ? AND id != ?', [
       accepted.email,
       accepted.id,
@@ -211,8 +280,7 @@ async function getOrCreateFirebaseUser(
         await audit(tx, accepted.id, 'account.email_updated', accepted.id, now);
       }
     }
-    if (config.masterAdminEmail && accepted.email === config.masterAdminEmail) {
-      const existingMaster = await first(tx, "SELECT id FROM users WHERE role = 'master' LIMIT 1");
+    if (accepted.configuredOwner) {
       if (!existingMaster) {
         await tx.execute({
           sql: "UPDATE users SET role = 'master', updated_at = ? WHERE id = ?",

@@ -25,7 +25,7 @@ if (existsSync(target)) {
       'PORT=3001',
       'DATABASE_URL=file:./data/campus.db',
       'ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:3001,http://localhost:3001',
-      'APP_NAME=XVIA',
+      'APP_NAME=ZabSync',
       'UNIVERSITY_URL=https://szabist-isb.edu.pk/',
       'TIMEZONE=Asia/Karachi',
       '',

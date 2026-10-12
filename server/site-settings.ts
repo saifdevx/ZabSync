@@ -9,8 +9,10 @@ export const featureFlagsSchema = z
     subjects: z.boolean(),
     resources: z.boolean(),
     announcements: z.boolean(),
-    tutor: z.boolean(),
+    developer: z.boolean(),
     profilePhotos: z.boolean(),
+    timetable: z.boolean(),
+    deadlines: z.boolean(),
   })
   .strict();
 

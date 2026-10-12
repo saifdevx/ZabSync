@@ -1,155 +1,177 @@
-# XVIA security and offline behavior — Checkpoint 2
+# ZabSync security and offline behavior — Checkpoint 3
 
-XVIA is the short application name; **Node Compass Task** is the full product name. This document separates protections implemented in the current ZIP from the offline and operational work still planned.
+This document records the protections and limits implemented in the current cumulative release. It also identifies work that still requires configured live services, real devices, production operations, or later checkpoints. Security depends on server permissions and deployment configuration as well as the interface.
 
 ## Identity, university eligibility, and class permissions
 
-The application checks three things:
+Protected access checks three independent facts:
 
-1. In real mode, Firebase verifies the sign-in identity and the backend verifies its token, including revocation checks.
-2. The backend requires a verified email in the exact **`szabist-isb.pk`** domain.
-3. SQL supplies the current account status, class membership, and representative role for the requested operation.
+1. In real mode, Firebase supplies the sign-in identity and the backend verifies its token, including revocation checks.
+2. Ordinary accounts require a verified email on the exact **`szabist-isb.pk`** domain. One external owner is allowed only when both its exact verified email and pinned Firebase UID match private server settings.
+3. SQL supplies the current account status, class membership, and role for the requested operation.
 
-The browser cannot grant itself a role. A Class ID identifies a class; a join code requests admission and does not grant membership or administrative powers by itself. Codes expire, can be rotated, and are stored as hashes. Representatives review membership requests; only the owner approves new classes and changes representatives. Existing sessions use the updated role on their next request.
+The runtime roles are Student, Class Admin, and Master Admin. Student and Master are global account roles; admin is a separate class membership role. A class admin may manage one class while remaining an ordinary student in another. Multiple admins may serve the same class. Only the owner assigns or removes class admin roles; a profile name, browser role label, forged header, or known UUID cannot grant authority.
 
-The domain is shared by students and staff. Email verification establishes mailbox ownership, not current student enrollment. Representatives should approve known classmates. An official student roster or student-only university identity integration remains an option for stronger eligibility checks.
+The owner creates the first class and can add a registered account and appoint its admin. An existing active class admin can create another class directly; ordinary students cannot. The former class approval queue is retired. Old CR/GR memberships become admin memberships during migration, retaining their IDs, statuses, timestamps, and history. Historical class requests are retained without granting new powers. See [ROLE_ADMIN_API.md](ROLE_ADMIN_API.md).
 
-For subjects, files, notices, bookmarks, and notifications, access depends on current class membership. Knowing a UUID or having bookmarked an item does not preserve access after removal. A deleted subject hides its child content. The server checks these rules on reads and again inside write transactions, including after a file finishes uploading. Student rosters omit classmates' email addresses.
+A Class ID identifies a class. A separate expiring join code requests admission; it does not grant content access or admin status by itself. Codes can be rotated and are stored as hashes. That class's admins or the owner review join requests. Approval creates an ordinary active membership.
 
-### Firebase records versus application access
+The domain is shared by students and staff. Verification establishes mailbox ownership, not current student enrollment. Class admins should admit known classmates. An official student directory or student-only university identity integration would provide a separate eligibility check.
 
-The backend rejects unsupported or unverified emails before protected application access. Someone bypassing browser validation may still create a Firebase Authentication record in a basic Firebase setup. That record does not grant class data or administration rights.
+Subjects, files, announcements, bookmarks, notifications, timetables, and deadlines use current class access. Knowing a UUID or having bookmarked an item does not preserve access after removal. Parent deletion hides linked content. Reads enforce these rules, and writes recheck them inside transactions, including after an upload finishes. Existing bearer sessions follow the updated SQL role or account status on their next protected request.
 
-Provider-level registration/sign-in blocking requires separately configured Authentication blocking functions and an Identity Platform upgrade. This ZIP does not automatically install them. See [Firebase blocking functions](https://firebase.google.com/docs/auth/extend-with-blocking-functions).
+Ordinary student directories omit classmates' email addresses and roll numbers. Class admins and the owner receive these fields for authorized class administration. App-managed offline snapshots omit rosters, invitations, pending requests, and owner directories entirely.
 
-### Passwords and secrets
+### Firebase records and application access
 
-Create a separate password for XVIA. **Never enter your university mailbox password in the XVIA registration form.** Verification mail arrives in the university mailbox and confirms ownership.
+The backend rejects unsupported or unverified emails before protected application access. Someone bypassing browser validation may still create a Firebase Authentication record in a basic provider setup. That record does not grant class data or administration rights. If provider-level registration blocking is required, configure it separately in Firebase; this ZIP does not install blocking functions. See [Firebase blocking functions](https://firebase.google.com/docs/auth/extend-with-blocking-functions).
 
-The Firebase web configuration, including its API key, identifies the Firebase project and appears in client code. It is not an administrative credential. Apply appropriate restrictions and rely on authentication and authorization, as described in [Firebase's API-key guidance](https://firebase.google.com/docs/projects/api-keys).
+Create a separate application password. **Never enter a university mailbox password in ZabSync's registration form.** Verification mail arrives at the university mailbox to confirm ownership.
 
-Firebase service-account credentials, Turso tokens, R2 credentials, and any future OpenAI API key are server secrets. Keep them outside source control, public folders, shared ZIPs, screenshots, and chat. A `VITE_` variable is exposed to client code and must not contain a server secret. See [Vite environment variables](https://vite.dev/guide/env-and-mode).
+The Firebase web configuration identifies the Firebase project and appears in client code; it is not an administrative credential. Apply the appropriate project restrictions and rely on authentication and authorization. See [Firebase API-key guidance](https://firebase.google.com/docs/projects/api-keys).
 
-The real Master Admin email must be set explicitly in private configuration. The sample student email and the first person to register are not assigned ownership automatically.
+Firebase service-account credentials, Turso tokens, R2 credentials, and any future AI API key are server secrets. Keep them outside source control, public folders, source ZIPs, screenshots, and chat. A `VITE_` variable is exposed to client code and must not contain a server secret. See [Vite environment variables](https://vite.dev/guide/env-and-mode).
 
-## Profiles and the Tutor page
+The real Master Admin email must be set explicitly in private configuration. An external owner also requires its exact Firebase UID; pinning the UID is recommended for a university owner too. Changing these values does not replace an existing owner. See [OWNER_ACCOUNT.md](OWNER_ACCOUNT.md) for fresh setup and the explicit transfer procedure. The sample student email and the first person to register do not receive ownership automatically. The campus website and ZABDESK shortcuts redirect to the university; the application never collects portal passwords.
 
-A student may edit a display name and an optional unique username. A username is a visible handle; it does not change the verified email, immutable user ID, roll number, or permissions. Reserved administrator/official handles are rejected.
+## Profiles and Developer information
 
-Profile photos accept one JPEG, PNG, or WebP image up to **2 MiB** and **16 megapixels**. The server decodes it, rejects animated/multipage files, applies orientation, resizes within 512×512, and writes a fresh WebP without original metadata. It does not serve the original upload as a profile photo.
+A student may edit a display name and optional unique username. The handle does not change verified email, immutable user ID, or permissions. Reserved administrator and official handles are rejected.
 
-Photo reads require the photo owner, a current member sharing an active class, or the Master Admin. Responses are private and uncached. Temporary browser object URLs are cleaned up when the account or component changes. Replacement/removal records old photo keys in a durable cleanup queue, with retries on startup and subsequent changes.
+Profile photos accept one JPEG, PNG, or WebP image up to **2 MiB** and **16 megapixels**. The server decodes the image, rejects animated or multipage files, applies orientation, resizes within 512×512, and writes a fresh WebP without original metadata. It does not serve the original upload as a profile photo.
 
-Only the owner edits or publishes the Tutor profile. It starts as an unpublished, empty draft. Descriptions are plain text; contact/booking URLs must use HTTPS and cannot contain embedded credentials. The backend does not fetch those links. No tutor identity, qualification, price, or contact information is invented.
+Photo access requires the owner of that photo, an active member sharing an active class, or the Master Admin. Responses are private and uncached. Temporary browser object URLs are cleaned up when the account or component changes. Replacement and removal record old photo keys in a durable cleanup queue, retried on startup and subsequent changes. Profile photos are not saved for offline viewing.
+
+Developer information replaces the former Tutor feature. Only the owner edits its private draft or publishes the name, biography, portfolio, updates, and other app links through **Master Admin → Developer**. Students open the separate **Meet the Developer** page (`/developer`) from the sidebar or Get the App to read the published information. Descriptions are plain text; external links require HTTPS and exclude embedded credentials. The backend does not fetch those links. Legacy Tutor records remain in the upgraded database but have no active publishing route. No developer identity, credentials, or portfolio is fabricated.
 
 ## Private lecture files
 
-Representatives and the owner can upload PDF, PPT, and PPTX files. Files use opaque server-generated storage keys; user filenames never become storage paths. Downloads pass through an authenticated API and are sent as attachments with `no-store`, `nosniff`, and restrictive document headers. No public upload or R2 object URL is exposed.
+Class admins and the owner publish PDF, PPT, and PPTX resources. Storage uses opaque, server-generated keys; original filenames never become server paths. Online downloads pass through an authenticated API and are sent as attachments with `no-store`, `nosniff`, and restrictive document headers. No public upload or R2 object URL is exposed.
 
-| Current limit            | Enforcement                                                        |
+| Current server limit     | Enforcement                                                        |
 | ------------------------ | ------------------------------------------------------------------ |
 | Lecture file             | 25 MiB per file, streamed to bounded temporary disk storage.       |
 | Class storage            | 100 MiB, counting active, trashed, and pending-deletion resources. |
-| Announcement attachments | Up to five existing files from the same audience.                  |
-| Subjects                 | Up to 100 active subjects in a class.                              |
+| Announcement attachments | Up to five existing resources with the same audience.              |
+| Subjects                 | Up to 100 active subjects per class.                               |
+| Recurring timetable      | Up to 100 active entries per class.                                |
+| Dated exceptions         | Up to 2,000 active exceptions per class.                           |
+| Deadlines                | Up to 2,000 active deadlines per class.                            |
 
-These are code-level defaults, not owner-dashboard quota controls. Changing a limit requires a reviewed code change that keeps API constants, multipart configuration, client validation, and messages consistent, followed by a build and verification. Runtime quota controls are planned with the later maintenance work.
+These are code-level limits, not runtime dashboard quota controls. Change the corresponding constants, multipart settings, validation, and messages together through a reviewed code change, then build and verify. Runtime budget controls remain later operational work.
 
-The server checks extensions and document structure: a PDF signature/end marker, a legacy PPT compound-file signature, or a bounded PPTX ZIP package with actual PowerPoint metadata. PPTX inspection does not extract files and rejects unsupported macros, embedded executables, traversal paths, and unsafe XML metadata.
+Document validation checks an allowed extension and document structure: a PDF signature and end marker, a legacy PPT compound-file signature, or a bounded PPTX ZIP with actual PowerPoint metadata. PPTX inspection does not extract files and rejects unsupported macros, embedded executables, traversal paths, and unsafe XML metadata.
 
-**File validation is not malware scanning.** Legacy PPT content is not deeply inspected for macros; an accepted PDF or presentation may still contain unwanted content. Only trusted representatives should publish course material. Antivirus/content scanning is a separate production control, not a capability claimed by this ZIP.
+**File validation is not malware scanning.** Legacy PPT macros are not deeply inspected. An accepted PDF or presentation can still contain unwanted content. Only trusted class admins should publish course materials. Antivirus or content scanning is a separate production control.
 
 ### Trash, restore, and storage accounting
 
-Trashing a file hides it from students and keeps the bytes for restoration. It does not free the class's storage allowance. A representative or owner must choose the separate permanent-removal action to reclaim space. If the parent subject is also trashed, restore that subject before managing its individual files.
+Trash hides a resource from ordinary members while retaining the bytes for restoration. It does not release the class allowance. An authorized admin must choose the separate permanent-removal action to reclaim space. If its subject is also deleted, restore that parent before managing an individual child resource.
 
-Deleting a subject hides active child files/notices without individually deleting them. Restoring the subject makes those active children available again. Independently trashed files/notices stay trashed.
+Deleting a subject hides its linked active resources and announcements without separately trashing them. Restoring the subject makes those active children visible again; independently trashed children stay trashed. The same active-subject rule applies to linked timetable entries, exceptions, and deadlines.
 
-### Local storage and R2
+### Local storage, R2, and interrupted operations
 
-Local mode stores files outside the client build and public directories. Production local-file hosting needs a persistent disk and backups. A free/ephemeral server filesystem is not durable lecture storage. R2 is available through the private S3-compatible adapter; keep bucket public access disabled. Credentials remain server-only.
+Local storage stays outside the client build and public directories. A production server using local files needs a persistent disk and backups; an ephemeral host filesystem is not durable lecture storage. The private S3-compatible R2 adapter is included, with public bucket access disabled and server-only credentials.
 
-The live R2 connection has not been tested in this checkpoint. Local storage and injected failure cases have been tested. File delivery currently passes through the API server, so host bandwidth and request capacity still matter with R2. See the [Cloudflare R2 SDK v3 guide](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/).
+The live R2 connection has not been tested here. Local storage and injected failure cases have automated coverage. File delivery currently passes through the API server even with R2, so server bandwidth and request capacity still matter. See [Cloudflare R2's SDK guide](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/).
 
-SQL and object storage do not share a transaction. Upload completion rechecks permissions and quota inside SQL; rejected completion attempts to remove its private object. Failed compensation logs the random storage key for operator reconciliation. A crash between upload and SQL registration can leave an unreferenced private object. Reconcile objects against database records during backup/maintenance before removing suspected orphans; automatic resource-orphan reconciliation remains future work.
+SQL and object storage do not share one atomic transaction. Upload completion rechecks permission and quota inside SQL; rejected completion attempts to remove the private object. Failed compensation logs its random storage key for operator reconciliation. A crash between upload and SQL registration can leave an unreferenced private object. Compare storage objects with database records during backup and maintenance before removing suspected orphans; automatic resource-orphan reconciliation remains future work.
 
-Permanent deletion stores a durable `deleting` state before removing the object. Failed deletion remains hidden and retryable; it cannot be restored as if the bytes were certainly present. Full database-and-storage outages can also require manual reconciliation of profile-photo objects, despite their cleanup queue.
+Permanent removal records durable `deleting` state before deleting bytes. A failed deletion stays hidden and retryable; the resource cannot be restored as though its bytes were certainly present. Full database or storage outages can also require manual photo-object reconciliation despite the photo cleanup queue.
 
-## Master controls, suspension, and maintenance
+## Timetable and deadline integrity
 
-The owner dashboard controls implemented subjects, resources, announcements, Tutor, and profile-photo modules. Flags are enforced by the backend as well as navigation. Turning a feature off preserves data:
+Dates are real ISO calendar dates and times are `HH:mm`, interpreted in **Asia/Karachi**. End time must follow start time on the same date. Subject links must point to an active subject in the same class. Exact duplicate timetable entries and exceptions are rejected; other simultaneous sessions are retained with visible conflict flags.
 
-- Turning subjects off hides subject-scoped files/notices throughout feeds, bookmarks, attachments, and notifications. Class-level files and class/global notices follow their own switches.
-- Turning resources off hides downloads/attachments while retaining notice text and attachment links. Text edits can preserve those hidden links.
-- Turning announcements off also disables the in-app announcement notification center.
-- A user can remove an existing photo while new photos and photo viewing are disabled, unless maintenance pauses changes.
+A dated cancellation or reschedule refers to a specific weekly entry and its original occurrence date. At most one active override exists for that occurrence. Moving it across weeks preserves the original cancelled or moved marker and adds the replacement date without rewriting the recurring template. Deleting an override restores the normal occurrence. Deleting a weekly entry hides its overrides. An admin must remove active overrides before changing that entry's weekday.
 
-Settings and Tutor edits include version checks: stale edits return conflicts instead of silently overwriting newer changes. The owner can suspend/reactivate accounts; an existing session is blocked on its next protected request. The owner account is protected from accidental self-suspension. Reactivation retains memberships/roles, so review representative assignments when restoring an account.
+Shared edits and deletes require the last-read record version. Conflicting changes return 409 rather than silently overwriting newer information. Deadline completion is personal to the authenticated member and is tied to the current deadline version. Changing academic details makes the new deadline version incomplete until the member marks it done again. The UI supplies that version when marking completion to reject a stale action.
 
-Maintenance is **read-only mode**: students/representatives can read existing content, sign in, and recover accounts while application changes are paused. The owner retains recovery controls. Maintenance does not stop hosting, replace deployment procedures, or erase already downloaded data.
+These controls are personal organization, not assignment submission, grading, or guaranteed reminder delivery. All writes, including personal completion, require a connection. See [TIMETABLE_API.md](TIMETABLE_API.md).
 
-The dashboard controls existing software and stored content. Adding software requires a code change, review, build, and deployment through the GitHub workflow. It does not execute arbitrary code entered into a dashboard field.
+## Owner switches, suspension, and maintenance
+
+The dashboard controls subjects, resources, announcements, Developer information, profile photos, timetable, and deadlines. The backend enforces these switches. Disabling a module retains its stored records:
+
+- Disabling subjects hides subject-scoped files, announcements, attachments, notifications, timetables, and deadlines. Unscoped class content follows its own feature switch.
+- Disabling resources hides downloads and attachments while retaining notice text and attachment links; text edits can preserve the hidden links.
+- Disabling announcements also disables the in-app notice center.
+- Timetable and deadlines have separate switches. Either can remain enabled when the other is disabled.
+- Existing profile photos can be removed when new photos and viewing are disabled, unless maintenance also pauses changes.
+
+Settings and Developer publication use optimistic versions. Suspension blocks the account on its next protected request; the owner account is protected from accidental self-suspension. Reactivation retains current membership state, so review old admin assignments deliberately. Removing or re-adding a membership does not silently restore a removed admin role.
+
+Maintenance is **read-only mode**. Students and class admins can read existing content, sign in, and recover accounts while non-owner mutations are paused. Owner recovery remains available. The dashboard does not execute arbitrary code, stop hosting, or replace deployment procedures. New features require a code change, build, and deployment.
 
 ## Request limits and campus Wi-Fi
 
-Authenticated limits use the verified application user ID, giving classmates behind the same campus IP independent account quotas. A refreshed Firebase token, changed IP, or forged identity header does not reset an account's quota. Authentication is reused only within one request; the next request rechecks the account.
+Authenticated request limits use the verified application user ID, giving classmates on a shared campus IP independent account quotas. A refreshed identity token, changed IP, or forged identity header does not reset an account's quota. Authentication is reused only within one request; later requests recheck identity and account state.
 
-Ordinary authenticated APIs allow 300 requests per minute per user unless an endpoint has a tighter limit. Public APIs use a separate 600-per-minute peer-IP allowance; demo login has its own smaller limit. Failed/missing identities are grouped by observed peer IP. A broad 6,000-request-per-minute network guard runs before parsing and identity-provider work. Static assets and preflight requests do not consume the ordinary API quota.
+Ordinary authenticated APIs allow 300 requests per minute per user unless an endpoint has a tighter limit. Public APIs use a separate 600-per-minute peer-IP allowance, and demo login has a smaller limit. Missing or failed identities share a quota by observed peer IP. A broad 6,000-request-per-minute network guard runs before parsing and identity-provider work. Static assets and preflight requests do not consume the ordinary API allowance.
 
-Counters are in memory in one server process. Restarts reset them; multiple instances have independent counters. Scaling to multiple instances requires shared limits or a configured gateway. The server does not trust arbitrary forwarded headers. Verify trusted-proxy policy and tune the broad guard against actual campus traffic during deployment. See `docs/OPERATIONS_API.md` for details.
+Counters are in memory in one server process. Restarts reset them and multiple instances have separate counters. Scaling requires a shared limiter or configured gateway. Arbitrary forwarded headers are not trusted. Verify proxy policy and tune the broad guard against measured campus traffic during deployment. See [OPERATIONS_API.md](OPERATIONS_API.md).
+
+## Private offline use in Checkpoint 3
+
+Offline reading is now implemented through two separate components: a public app shell and an explicit, account-aware private device store. Initial authentication and preparation require internet. Subsequent reopening can use a valid saved snapshot without indefinitely waiting for the server.
+
+### Public shell and installation
+
+The production service worker caches the public HTML shell and a bounded build-asset allowlist, including the JavaScript, CSS, icons, and public assets needed to open it. It excludes API responses, authentication responses, requests with Authorization headers, profile photos, and lecture download endpoints. Private records and file bytes are never written to its general response cache. Worker updates wait for the user's update action instead of automatically reloading an open form.
+
+A supported browser can install the HTTPS website to its home screen. Web installation does not require an App Store release and does not create an APK. The device screen separately checks public-shell readiness and private-data preparation. Development hot reload is not the production service-worker verification path. See [INSTALL_AND_ANDROID.md](INSTALL_AND_ANDROID.md).
+
+### Explicit preparation, account isolation, and expiry
+
+Offline preparation is opt-in. IndexedDB stores a single enabled account per browser profile with a changing account-generation marker. Each asynchronous commit verifies that marker; an old account's slow download or synchronization cannot overwrite a newer account's store. Snapshot fields are explicitly selected, not copied from arbitrary API responses. Class rosters, pending members, join codes, owner directories, Developer drafts, and authentication tokens are excluded.
+
+A complete snapshot can include authorized class details, subjects, resource metadata, notices, notification state, all weekly timetable entries, all active exception pages, and all active deadline pages. The exception API supports `all=true` to include dates beyond the initial week. The same import-free schedule resolver creates the dated timetable online and offline.
+
+Ordinary students and admins prepare their joined classes. The Master Admin console is online-only. Use a separate university student account for personal classes and offline preparation; legacy owner snapshots are cleared when this version reads them. Structured information is capped at **20 MiB**, classes at **20**, and explicitly saved file bytes at **150 MiB**. Browser storage may impose a lower limit. A failed or incomplete preparation does not replace the previous complete snapshot or extend its freshness timestamp.
+
+Saved data is eligible for **seven days from the last successful full synchronization**, based on the device clock. Permission-only pruning does not extend that period. Once expired, the application requires reconnection and clears the invalid app-managed snapshot. This is a freshness policy, not tamper-proof encryption or remote document control.
+
+Offline views show connection state and the last successful synchronization time. An offline device cannot know that a class was cancelled, a notice was edited, or a deadline was changed elsewhere. Shared content and personal completion are read-only offline; no background queue silently submits old edits when the connection returns.
+
+| Feature                                                               | Current offline behavior after successful preparation                                |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Weekly timetable                                                      | Read the saved recurring pattern and all saved dated exceptions; move between weeks. |
+| Quizzes, assignments, and events                                      | Read synchronized deadlines and saved personal completion status.                    |
+| Announcements and notices                                             | Read the synchronized authorized content and notification state.                     |
+| Resources and bookmarks                                               | Browse saved metadata and references; a bookmark alone is not a file download.       |
+| Explicitly saved files                                                | Open after a complete authorized file save, while the snapshot remains eligible.     |
+| Class rosters, owner controls, and profile photos                     | Not included in private offline snapshots.                                           |
+| First login, recovery, publishing, editing, joining, and marking done | Require internet.                                                                    |
+| University portal, external Developer links, and future AI            | Require internet.                                                                    |
+| Front-page generator and durable push reminders                       | Planned for later checkpoints.                                                       |
+
+### File saves and removal
+
+Saving for offline use fetches a private resource through the authenticated download API and rechecks the authoritative manifest before committing the complete blob. It verifies the expected resource version metadata and byte size. Files have explicit saved and failed states; a partial transfer is not advertised as available offline.
+
+Students can see usage, remove an individual offline file, refresh preparation, or clear app-managed private data. An ordinary browser download is separate: files exported to the operating system's Downloads folder are outside these controls. Browser storage can be cleared or evicted and is not a backup. See [browser storage quotas and eviction](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria).
+
+### Reconnection, revoked access, and shared devices
+
+`GET /api/offline/access` derives the current visible scope from SQL in a read transaction. It includes class, subject, notice, and resource metadata without storage keys, private URLs, rosters, or invitation secrets. It fails explicitly if a complete bounded manifest cannot be returned. This access list is not a credential.
+
+Reconnection and refresh revalidate the account and scope, remove unavailable classes, subject-linked records, disabled features, and stale or inaccessible file copies, then refresh academic data. New content versions become available after successful synchronization. An authoritative permission or suspension failure must not be disguised as a network outage that returns old private data.
+
+Logout, account switching, and explicit clear-data actions remove the app-managed private store. Cross-tab changes invalidate another open tab's account view. Use offline preparation on a trusted device: someone able to open the same browser profile may be able to read its enabled offline snapshot. Namespace isolation does not secure an unlocked or compromised device.
+
+**A disconnected device cannot receive immediate revocation.** Suspension or membership removal blocks subsequent server access and is applied to the device when it reconnects. It cannot immediately erase an offline copy, recall an exported document, or stop someone retaining information they previously viewed. The seven-day freshness window reduces indefinite in-app stale access but does not provide remote erasure.
+
+### Reminder and release boundaries
+
+An offline deadline list does not need a push connection. New push delivery requires connectivity, and permission alone does not guarantee delivery. Exact-time reminders from a closed offline web browser are not promised. Later Android notification support must update or cancel synchronized reminders when changes arrive. See [Firebase message lifespan and delivery](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan).
 
 ## Local demo and verification boundary
 
-Demo personas are development identities, not verified university accounts. Demo mode is restricted to a loopback server, origins and peers, and local storage/SQL. Do not expose it through a public host, tunnel, or shared network. Production refuses demo authentication. Keep demo and real databases separate; do not promote seeded identities into a live student database.
+Demo personas are development identities, not verified university accounts. Demo mode is restricted to a loopback server, local origins and peers, local SQL, and local file storage. Production refuses demo authentication. Keep demo and real databases separate; seeded identities must not be promoted into a live student database.
 
-Automated tests exercise the actual API, SQL permissions, uploads, relevant storage failures, owner controls, migration, worker rules, and rendered React workflows. Fixtures do not contact university mailboxes or live cloud providers. Tests do not prove live Firebase/Turso/R2 connectivity, email delivery, browser layout, phone installation, or Android behavior. Completed and outstanding checks are recorded in `docs/VERIFICATION.md`.
+Automated tests exercise real local APIs and SQL permissions, academic uploads and relevant storage failures, current roles and migration, timetable and deadline versioning, manifest visibility, account-aware device stores, and selected React and worker behavior. They do not contact university mailboxes or live providers. Passing them does not prove Firebase/Turso/R2 connectivity, email delivery, physical phone installation, real-browser offline reopening, realistic production load, or native Android behavior. Record completed and outstanding checks in [VERIFICATION.md](VERIFICATION.md).
 
-## PWA now; required academic offline access in Checkpoint 3
+Before broad use, perform the production-browser acceptance flow: sign in, prepare a class, save a PDF, fully close, disconnect, reopen, and read the timetable, notices, deadlines, and file. Verify visible timestamps, expiry, interrupted preparation, account switching, storage loss, reconnect updates, parent deletion, and removed membership. Repeat on target iPhones and Android browsers with the intended hosting configuration.
 
-Checkpoint 2 includes the manifest, supplied app icon, installation guidance, supported-browser install prompt, and a production service worker. Students can use a deployed HTTPS website and add it to a home screen. Web installation does not require an App Store release or create an APK. See `docs/INSTALL_AND_ANDROID.md` for device-specific steps.
-
-The current worker caches only `/offline.html` and the public app icon. After an initial successful visit to the production build, failed navigation can show a public reconnect page. It does **not** cache the authenticated app shell, class data, APIs, photos, lectures, Firebase responses, or requests carrying Authorization headers. It does not queue edits. Worker updates wait for the student's explicit update action to avoid automatic reloads during editing.
-
-The limited cache is deliberate: private academic caching needs account partitioning, deletion/suspension behavior, storage controls, and synchronization. Adding a home-screen icon does not make timetable or saved-file access work offline. Academic offline access remains a **required Checkpoint 3 feature**, including reopening after the app was fully closed.
-
-### First sync and later offline use
-
-Initial sign-in and synchronization require internet. The Checkpoint 3 app must subsequently open saved content without waiting indefinitely for a network response.
-
-| Feature                                      | Required later offline behavior                                               |
-| -------------------------------------------- | ----------------------------------------------------------------------------- |
-| Weekly timetable                             | Show the last synchronized weekly pattern and saved dated exceptions.         |
-| Quizzes and assignments                      | Show synchronized deadlines and details.                                      |
-| Announcements                                | Read notices synchronized to that account/device.                             |
-| Explicitly saved files                       | Open after their offline download has completed.                              |
-| Bookmarks                                    | Show saved references; a file not downloaded still needs internet.            |
-| Front-page generator                         | Generate locally after template/assets are saved, when added in Checkpoint 4. |
-| First login and recovery                     | Require internet.                                                             |
-| New notices, membership changes, and editing | Require a server connection.                                                  |
-| University portal and AI                     | Require internet.                                                             |
-
-Cached academic information must show **Offline — last updated [date/time]**. An offline device cannot know about a newly cancelled class or changed deadline.
-
-Shared academic data will initially be read-only offline. Reconnection must refresh membership, fetch changes, apply deletions, and update the last-successful-sync time. Failed refreshes must preserve the last saved view and identify it as stale. File downloads need completed/failed states and retry controls.
-
-### Saved-data privacy and reminder limits
-
-Partition app-managed stores by account/class and clear private data on logout/account switching. Recheck permissions online. Do not indiscriminately cache authenticated responses or mistake an expired signed URL for a saved document. Distinguish app-managed offline copies from files in the device's Downloads folder.
-
-Suspension prevents future authorized server access. It cannot immediately erase an offline device or recall files saved elsewhere. Browser storage can be cleared/evicted, so provide usage, removal, and redownload controls. See [browser storage quotas and eviction](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria).
-
-An offline deadline list does not need a push connection. New push requires connectivity, and permission does not guarantee delivery. Do not promise exact-time alerts from a closed, offline web browser. At the Android stage, local notifications may use synchronized deadlines, then update/cancel after changes arrive. See [Firebase message lifespan and delivery](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan).
-
-### Required Checkpoint 3 acceptance checks
-
-1. Sign in online and synchronize a class timetable, dated exceptions, deadlines, and notices.
-2. Explicitly save a PDF and confirm completion.
-3. Fully close the app, disconnect the network, and reopen it.
-4. Read the saved timetable/deadlines and open the PDF.
-5. Confirm visible offline status and last-update time.
-6. Change/cancel a class on another device; the offline device must show its clearly marked saved version.
-7. Reconnect and verify changes, deletions, and membership refresh.
-8. Log out/switch accounts and verify that the next account cannot read the previous account's app-managed data.
-9. Exercise failed downloads, storage eviction, and interrupted sync without claiming incomplete content is saved.
-
-These are future requirements, not Checkpoint 2 results. The Android project, signed APK/direct download, AAB, and Play preparation remain Checkpoint 5; no current APK is claimed.
+The Android project, signed APK/direct download, AAB, and Play preparation remain Checkpoint 5. No current APK or store publication is claimed. Backups, object reconciliation, live-provider configuration, load checks, and physical-device validation remain necessary operational and release work.

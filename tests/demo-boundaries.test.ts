@@ -67,3 +67,20 @@ test('demo cannot start on a public interface or with a public allowed origin', 
     /loopback/i,
   );
 });
+
+test('local demo exposes only student, admin, and master personas', async (t) => {
+  const app = await createTestApp(t);
+  for (const persona of ['student', 'admin', 'master']) {
+    expectSuccess(
+      await app.inject({ method: 'POST', url: '/api/demo/session', payload: { persona } }),
+    );
+  }
+  for (const persona of ['cr', 'gr', 'legacyGr', 'otherAdmin']) {
+    const denied = await app.inject({
+      method: 'POST',
+      url: '/api/demo/session',
+      payload: { persona },
+    });
+    assert.equal(denied.statusCode, 400, denied.body);
+  }
+});

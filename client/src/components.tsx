@@ -70,8 +70,7 @@ export function EmptyState({
 export function RoleBadge({ role }: { role: string }) {
   const labels: Record<string, string> = {
     master: 'Master Admin',
-    cr: 'Class representative',
-    gr: 'Group representative',
+    admin: 'Class Admin',
     student: 'Student',
     pending: 'Pending approval',
     approved: 'Approved',
@@ -102,7 +101,7 @@ export function Avatar({
     let active = true;
     let objectUrl = '';
     const controller = new AbortController();
-    if (userId && avatarVersion) {
+    if (userId && avatarVersion && !auth.offline) {
       auth
         .requestBlob(
           `/users/${encodeURIComponent(userId)}/avatar?v=${encodeURIComponent(avatarVersion)}`,
@@ -122,7 +121,7 @@ export function Avatar({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [auth.requestBlob, userId, avatarVersion, key]);
+  }, [auth.requestBlob, auth.offline, userId, avatarVersion, key]);
   return (
     <span className={`avatar avatar-${size}`} aria-hidden="true">
       {picture?.key === key ? (

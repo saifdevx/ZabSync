@@ -25,32 +25,26 @@ const personas: { id: Persona; title: string; subtitle: string; icon: typeof Use
   {
     id: 'student',
     title: 'Student',
-    subtitle: 'Join a class and meet your community',
+    subtitle: 'Your classes, timetable, and saved resources',
     icon: GraduationCap,
   },
   {
-    id: 'cr',
-    title: 'Class representative',
-    subtitle: 'Manage your class and approve members',
+    id: 'admin',
+    title: 'Class Admin',
+    subtitle: 'Organize your class and manage its members',
     icon: Users,
-  },
-  {
-    id: 'gr',
-    title: 'Group representative',
-    subtitle: 'Help your CR look after the class',
-    icon: Layers3,
   },
   {
     id: 'master',
     title: 'Master Admin',
-    subtitle: 'Approve class spaces and appoint reps',
+    subtitle: 'Manage semesters, sections, and class admins',
     icon: ShieldCheck,
   },
 ];
 
 export function AuthScreen() {
   const auth = useAuth();
-  const [mode, setMode] = useState<'login' | 'register' | 'reset'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'reset' | 'owner'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -67,6 +61,7 @@ export function AuthScreen() {
   }, [resetCooldown]);
   const changeMode = (next: typeof mode) => {
     setMode(next);
+    setPassword('');
     setError('');
     setNotice('');
   };
@@ -83,7 +78,8 @@ export function AuthScreen() {
           'If an account exists for this email, a password reset link will arrive in its inbox. Check your spam folder too.',
         );
         setResetCooldown(60);
-      } else await auth.login(email, password);
+      } else if (mode === 'owner') await auth.ownerLogin(email, password);
+      else await auth.login(email, password);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -92,7 +88,7 @@ export function AuthScreen() {
   };
   return (
     <div className="auth-layout">
-      <section className="auth-story" aria-label="About XVIA">
+      <section className="auth-story" aria-label="About ZabSync">
         <a
           className="university-logo-wrap"
           href={auth.config?.universityUrl}
@@ -109,7 +105,7 @@ export function AuthScreen() {
           <div className="brand-symbol">
             <GraduationCap size={32} />
           </div>
-          <span className="eyebrow">WELCOME TO XVIA</span>
+          <span className="eyebrow">WELCOME TO ZabSync</span>
           <h1>
             Your class.
             <br />
@@ -127,7 +123,7 @@ export function AuthScreen() {
             </div>
             <div>
               <strong>Made for your class</strong>
-              <span>A dedicated space, shaped by your representatives.</span>
+              <span>A dedicated space, shaped by your class admins.</span>
             </div>
             <Check className="story-check" size={21} />
           </div>
@@ -155,20 +151,24 @@ export function AuthScreen() {
           <h2>
             {isDemo
               ? 'Take a look around.'
-              : mode === 'register'
-                ? 'Find your class.'
-                : mode === 'reset'
-                  ? 'Let’s get you back in.'
-                  : 'Welcome back.'}
+              : mode === 'owner'
+                ? 'Owner sign-in.'
+                : mode === 'register'
+                  ? 'Find your class.'
+                  : mode === 'reset'
+                    ? 'Let’s get you back in.'
+                    : 'Welcome back.'}
           </h2>
           <p className="auth-intro">
             {isDemo
               ? 'Choose a role to explore a working class space. These are fictional accounts with local practice data.'
-              : mode === 'register'
-                ? 'Create your XVIA account with your university email.'
-                : mode === 'reset'
-                  ? 'We’ll send a reset link to your university email.'
-                  : 'Sign in to your university community.'}
+              : mode === 'owner'
+                ? 'Use your existing owner account to open the administration console.'
+                : mode === 'register'
+                  ? 'Create your ZabSync account with your university email.'
+                  : mode === 'reset'
+                    ? 'We’ll send a reset link to your university email.'
+                    : 'Sign in to your university community.'}
           </p>
           {isDemo ? (
             <div className="demo-personas">
@@ -211,7 +211,7 @@ export function AuthScreen() {
             </div>
           ) : (
             <>
-              {mode !== 'reset' && (
+              {mode !== 'reset' && mode !== 'owner' && (
                 <div className="auth-tabs" role="group" aria-label="Account access">
                   <button
                     className={mode === 'login' ? 'selected' : ''}
@@ -243,7 +243,7 @@ export function AuthScreen() {
                   </label>
                 )}
                 <label>
-                  University email
+                  {mode === 'owner' ? 'Owner account email' : 'University email'}
                   <div className="input-with-icon">
                     <Mail size={18} />
                     <input
@@ -253,11 +253,15 @@ export function AuthScreen() {
                       autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@szabist-isb.pk"
+                      placeholder={
+                        mode === 'owner' ? 'Your owner account email' : 'you@szabist-isb.pk'
+                      }
                     />
                   </div>
                   <small>
-                    Only @{auth.config?.allowedEmailDomain} addresses can access the app.
+                    {mode === 'owner'
+                      ? 'Only the privately configured owner account can use this console.'
+                      : `Student accounts use @${auth.config?.allowedEmailDomain} university addresses.`}
                   </small>
                 </label>
                 {mode !== 'reset' && (
@@ -314,26 +318,39 @@ export function AuthScreen() {
                       ? resetCooldown
                         ? `Send again in ${resetCooldown}s`
                         : 'Send reset link'
-                      : 'Sign in'}
+                      : mode === 'owner'
+                        ? 'Sign in as owner'
+                        : 'Sign in'}
                   {!busy && <ArrowRight size={18} />}
                 </button>
-                {mode === 'reset' && (
+                {(mode === 'reset' || mode === 'owner') && (
                   <button type="button" className="text-button" onClick={() => changeMode('login')}>
                     <ArrowLeft size={16} />
-                    Back to sign in
+                    {mode === 'owner' ? 'Back to student sign-in' : 'Back to sign in'}
                   </button>
                 )}
               </form>
               <p className="auth-help">
                 <ShieldCheck size={17} />
-                Verified email first. Class approval next.
+                {mode === 'owner'
+                  ? 'Your verified identity is checked by the server.'
+                  : 'Verified email first. Class approval next.'}
               </p>
+              {mode === 'login' && (
+                <button
+                  type="button"
+                  className="text-button owner-signin-link"
+                  onClick={() => changeMode('owner')}
+                >
+                  <ShieldCheck size={16} /> Owner sign-in
+                </button>
+              )}
             </>
           )}
         </div>
         <footer className="auth-footer">
           <span>
-            XVIA <Sparkles size={12} />
+            ZabSync <Sparkles size={12} />
           </span>
           <a href={auth.config?.universityUrl} target="_blank" rel="noopener noreferrer">
             University website <ExternalLink size={13} />

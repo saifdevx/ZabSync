@@ -1,185 +1,158 @@
-# Start here — Checkpoint 2
+# Start here — ZabSync Checkpoint 3, corrected version 0.3.1
 
-You can run this checkpoint on your own computer without Firebase, Turso, Cloudflare, a credit card, or a Play Store account. Start with the included local demonstration. Real university accounts can be connected later using [the configuration checklist](CONFIGURATION_CHECKLIST.md).
+This is a complete project, not a patch that must be pasted into Checkpoint 2. You can try it locally without Firebase, Turso, Cloudflare, a credit card or a Play Store account. Real-account setup is separate.
 
-The first download of project dependencies needs internet. Keep the project folder on your computer; opening files directly from inside the ZIP will not start the application.
+If you already installed Checkpoint 3, start with [UPGRADE_FROM_CHECKPOINT_3](UPGRADE_FROM_CHECKPOINT_3.md). For Checkpoint 1 or 2, follow [UPGRADE_FROM_CHECKPOINT_2](UPGRADE_FROM_CHECKPOINT_2.md). A new extracted folder also works as a fresh demo.
 
-## Before you begin
+## 1. Install Node.js 24
 
-If you want to retain your previous accounts and class setup, follow [UPGRADE_FROM_CHECKPOINT_1.md](UPGRADE_FROM_CHECKPOINT_1.md) before starting. This ZIP also works as a fresh installation.
-
-## 1. Install the one required development tool
-
-Install **Node.js 24 LTS** from [nodejs.org](https://nodejs.org/en/download). npm is included with the normal Node installation. This project uses Node 24; the [official release table](https://nodejs.org/en/about/previous-releases) lists its support status.
-
-An editor such as Visual Studio Code is useful for viewing files but is not required for the first run. You do not need Python, Docker, Android Studio, or a separate SQL server for this checkpoint.
-
-Open a new terminal after installation and check:
+Install the Node.js 24 LTS package from [nodejs.org](https://nodejs.org/en/download). npm is included. Reopen your terminal after installation:
 
 ```sh
 node --version
 npm --version
 ```
 
-The first command should start with `v24.`. The second should print an npm version, not an error.
+The first result should begin with `v24.`. No separate SQL server, Python, Docker or Android Studio is needed for this checkpoint.
 
-## 2. Extract the ZIP and open its folder
+## 2. Extract the whole ZIP
 
-### Windows
-
-1. Right-click the ZIP and choose **Extract All**.
-2. Move the extracted project folder somewhere simple, for example `C:\Projects\xvia-checkpoint-2`.
-3. Open that folder in File Explorer. You should see `package.json`, `.env.example`, and the `docs` folder.
-4. Click the address bar, type `powershell`, and press Enter. The terminal opens in the project folder.
-
-If you already opened PowerShell elsewhere, change to your actual project path:
+On Windows, right-click the ZIP, choose **Extract All**, and put the extracted folder somewhere simple, for example `C:\Projects\zabsync-checkpoint-3`. Open the folder containing `package.json`. Type `powershell` in File Explorer's address bar to open a terminal there.
 
 ```powershell
-cd "C:\Projects\xvia-checkpoint-2"
+cd "C:\Projects\zabsync-checkpoint-3"
 ```
 
-If PowerShell says it cannot run `npm.ps1`, use `npm.cmd` in place of `npm` in the commands below. You do not need to weaken the computer's script-execution policy.
-
-### macOS or Linux
-
-1. Extract the ZIP using your file manager.
-2. Open Terminal and change to the extracted project folder. For example:
+On macOS/Linux, extract with your file manager and open Terminal:
 
 ```sh
-cd ~/Downloads/xvia-checkpoint-2
+cd ~/Downloads/zabsync-checkpoint-3
 ```
 
-Use the folder's actual location if different. If you get a “no such file or directory” error, find the extracted folder and correct the path.
+Use your actual folder location. Do not try to run the project from inside the ZIP. If Windows blocks `npm.ps1`, use `npm.cmd` instead of `npm`; changing the system's script-execution policy is unnecessary.
 
-## 3. Install and prepare the local demo
+## 3. Install and configure the local demo
 
-Run each command below, waiting for it to finish before running the next:
+Run each command and wait for it to finish:
 
 ```sh
 npm ci
-```
-
-This installs the exact dependency versions recorded in `package-lock.json`. Allow it to finish; the first run can take a few minutes.
-
-```sh
 npm run setup:demo
-```
-
-The setup creates a local demo configuration; the API creates the sample database when it first starts. It does not send emails, create cloud accounts, or use real university credentials. It preserves an existing configuration rather than silently overwriting your settings. If it reports that the project is configured for Firebase, keep that configuration and use a fresh extracted folder to try the demo.
-
-## 4. Start the application
-
-```sh
 npm run dev
 ```
 
-Leave this terminal open. It runs the web interface and API together.
+`npm ci` downloads the exact locked dependencies and needs internet. Demo setup creates local configuration without overwriting an existing `.env`. When the server starts, it creates the sample database and applies migrations. If your folder already has real Firebase settings, keep them and try a fresh extracted folder for the demonstration.
 
-Open **[http://127.0.0.1:5173](http://127.0.0.1:5173)** in your browser. The backend runs on port `3001`; you normally interact with the page on `5173` during development.
+Open **http://127.0.0.1:5173** and keep the terminal running. The API uses port 3001 and the development interface uses 5173.
 
-Choose a demo persona to explore the corresponding view:
+| Persona      | Try this                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------ |
+| Student      | Read class notices and files, timetable and deadlines; edit your own profile; no Create class/admin controls |
+| Class Admin  | Create a class directly; manage your own class's subjects, content, invitations, timetable and deadlines     |
+| Master Admin | Browse semesters/sections/people, enroll registered accounts, assign admins and manage global settings       |
 
-| Persona      | What to explore                                             |
-| ------------ | ----------------------------------------------------------- |
-| Student      | Class access, profile, and requesting a class or membership |
-| CR           | Managing the representative's own class                     |
-| GR           | The equivalent class-management role                        |
-| Master Admin | Reviewing requests and managing classes globally            |
+These are fictional demo accounts. Old demo database email strings may remain after an upgrade to preserve identities; they do not create extra public roles. No real university timetable, teacher or deadline is implied by the clearly labelled sample data.
 
-The persona accounts are fictional local data. No password or university inbox is needed. An additional separate-class fixture is used for permission tests; it is not a fifth public persona.
+The demo is deliberately restricted to this computer. Use Firebase mode and persistent stores before hosting for students; do not expose the persona selector publicly.
 
-Demo mode is for this computer only. Do not publish it or expose it through a tunnel. The real-account mode replaces the persona selector with Firebase authentication.
+## 4. Try the new owner workflow
 
-## 5. Try the new complete workflows
+1. Choose **Master Admin**. It opens the separate **Owner dashboard** automatically. Its navigation has no student Home, My classes or personal timetable destination.
+2. Open **Semesters & sections**, choose **Semester 5**, then the sample **5D** section.
+3. The **People** view shows enrolled students. The owner can see account IDs, names, email addresses and roll numbers where the email local part is numeric. Fictional demo emails are names, so their roll number is not fabricated.
+4. Use the person's shield button, **Change class admin role**. In **Class role**, choose **Class Admin** or **Student**, then select **Save role**. Several Class Admins can coexist in one class.
+5. To add an already registered account, use **Enroll a student** and select the matching account. Registration alone does not imply membership in every class.
+6. A selected student's normal interface gains the Class Admin controls after their account state refreshes. Server permissions change immediately; the student does not receive Master Admin authority.
 
-### Publish a lecture and notice
+For your first real class, use **Create class** in the owner directory, enter its semester and section, then enroll registered students and appoint one or more Class Admins. Creating a class as owner does not enroll the owner. In an existing semester, the form starts with that semester selected. Class Admins can create a class directly and become its admin; ordinary students can only join.
 
-1. Enter as **CR**. Open the sample **5D** class, then choose **Subjects**.
-2. Add your own subject, for example “Operating Systems Lab,” or open the clearly marked sample course.
-3. Open that subject, choose **Resources**, and upload a real, non-sensitive PDF/PPT/PPTX. Use a file below 25 MiB. Its title and description are editable.
-4. Return to **Announcements** in the subject. Post an update and optionally select your uploaded file as an attachment.
-5. Return to the class and publish another announcement to **Everyone in this class**. Pin it if it needs prominence.
-6. Switch to **Student**. Both updates can appear on Home, and the class-wide notice is visible without opening the subject. Open a notice, save it, and find it in **Saved for later**.
-7. Use **Download** to save the lecture through your browser. Bookmarking alone does not download a file.
-8. The bell opens the in-app notification inbox. Try marking notices as read.
+Open a section to manage its subjects, files, announcements, students, timetable and deadlines. The owner keeps this broad management scope inside the owner console. For your own day-to-day studies, use a separate university account. [OWNER_ACCOUNT](OWNER_ACCOUNT.md) explains using one explicitly configured Gmail address as owner, with its Firebase UID, and transferring an existing owner safely.
 
-No actual university timetable, deadline, or lecture is invented. Demo notices are explicitly sample information.
+Membership requests through join codes still need approval. The removed workflow is class-creation approval.
 
-### Customize your student profile
+## 5. Add your section's weekly timetable
 
-Open your avatar or **More → My profile**. Change your display name, choose an optional unique username, and upload a JPEG, PNG, or WebP photo below 2 MiB. Your email and internal account ID stay stable. You can replace or remove the photo later.
+1. Choose **Class Admin** and open **Timetable**. Select the intended class.
+2. Choose **Weekly class**. Enter **Title**, **Day**, **Start time** and **End time**. You can also select **Subject (optional)** and add a teacher, room and notes. Choose **Add to class** to save the repeating weekly routine.
+3. Read the entire **Monday–Sunday** schedule on one page. Wide layouts place day panels side by side; smaller screens stack them with time, subject, teacher and room readable. Use the week controls to look ahead. The clock is the campus timezone, **Asia/Karachi**.
+4. Open **Manage weekly template & changes** to edit or remove a recurring entry.
+5. Use **One-time change** for an extra session, a cancelled occurrence, or a rescheduled occurrence. The selected date changes only that occurrence, not the weekly routine.
+6. For a cancellation/reschedule, choose the recurring entry and its original date. Rescheduling also takes the replacement date/time. A conflict badge draws attention to overlapping sessions; review the schedule before students rely on it.
+7. If classmates need attention drawn to a change, also post a whole-class announcement.
 
-### Use the central Master Admin dashboard
+Students read the full week without shared editing controls. Empty days are visible too. Your saved routine repeats automatically; dated extras, cancellations and moves affect only the indicated occurrences. As owner, open a section from the directory and choose its **Timetable** or **Deadlines** link to manage the same information.
 
-1. Switch to **Master Admin** and open **Master Admin** from the sidebar, shield icon, or More menu.
-2. **Global notices:** publish a university-wide announcement. Only Master Admin can do this.
-3. **Settings & Tutor:** enter your own accurate tutor information. Preview, save a private draft, and publish when ready. No tutor information is prefilled as fact.
-4. Switch back to Student and open **Tutor** to check the published result.
-5. Return to Master and try a feature switch. Disabling a feature hides it and blocks its API; it preserves data for re-enabling. Do not leave all features off if you want to explore the rest of the demo.
-6. Try read-only maintenance. Students may read existing content while edits are paused. Master can still turn maintenance off. Its message is customizable.
-7. **Members:** suspend/restore an ordinary demo account. Suspension immediately blocks its server access. Restore it before attempting to use that persona again. The owner cannot suspend their own Master account.
-8. **All classes:** open any class to edit its contents and appoint CR/GR. **Activity** records important changes.
+## 6. Add quizzes, assignments and events
 
-### Recycle bin
+Open **Deadlines** for the class. As Class Admin, create a quiz, assignment or event with its title, subject if applicable, date, time and details. Edit/delete actions use the latest version so one admin cannot silently overwrite another admin's update.
 
-Representatives can move subjects, files, and announcements to trash, then restore them. Trashed files still occupy class storage. Permanently removing a trashed file is an explicit, confirmed action. If the whole subject was trashed, restore it first to manage individual files inside it. Downloaded student copies cannot be recalled by deleting the server copy.
+Each student has their own **Mark complete** control while online. This is a personal checklist, not an assignment-upload/submission system. When an admin changes a deadline, the updated version becomes open until the student reviews and marks it again. Deadline cards are included now; automatic scheduled/push reminders are part of Checkpoint 4.
 
-### Install on a home screen
+## 7. Keep lectures and announcements organized
 
-Open **Get the app** or **More → Get XVIA**. The screen explains iPhone/Safari and Android/browser installation. A native Install button appears only when the browser offers its installation event. See [INSTALL_AND_ANDROID.md](INSTALL_AND_ANDROID.md).
+Inside a class, add subjects such as Operating Systems Lab and Databases. Each subject has resources and announcements. Upload a PDF, PPT or PPTX below 25 MiB. Edit its title/details, attach it to a notice, download it or place it in the recycle bin.
 
-The development server does not register a worker. Use `npm run build` then `npm start` to check the compiled install setup on your computer. Real phone access needs a deployed HTTPS address and Firebase authentication; the loopback-only demo cannot be reached from a phone. The reconnect page is available after a successful service-worker installation. Saved timetables and offline academic data arrive in Checkpoint 3.
+A class-wide notice reaches the class home feed without requiring students to open a particular subject. Only Master Admin can post a university-wide notice. Bookmarks and the in-app notification inbox remain available.
 
-## Stop and reopen
+Trashed files continue to count toward the class quota. Restore the parent subject first if it was trashed. Permanent file removal asks for confirmation and cannot recall copies already downloaded to a student's device.
 
-Press **Ctrl+C** in the running terminal to stop the application. Later, open a terminal in the same project folder and run:
+## 8. Prepare offline access using the compiled app
 
-```sh
-npm run dev
-```
-
-Your local SQL data lives under `data/`. Stopping the server does not normally erase it. You do not need to reinstall dependencies or recreate the demonstration each time.
-
-## Run the checks and compiled application
-
-From the project folder:
+The development server is for editing code. For offline reopening, stop it with **Ctrl+C**, then run:
 
 ```sh
 npm run build
-npm test
+npm start
 ```
 
-Tests check the implemented cases; building checks that the client and server compile. These commands do not verify real Firebase email delivery or substitute for trying the interface in a browser.
+Open **http://127.0.0.1:3001** on the same computer. Do not use 5173 for this test.
 
-To try the compiled application, stop the development server first, then run:
+1. Sign in as Student or Class Admin while online, then open **Offline access**. The Master Admin console requires a connection.
+2. Click **Prepare offline access** and wait for the complete-sync time.
+3. Check that **Reopen the app offline** says the app shell is ready. If it is still preparing, reopen this screen after the worker finishes; an uncached app cannot reopen offline.
+4. Open a class's Resources and choose **Save offline** on a document. If offline access is not prepared yet, the button guides you to preparation first.
+5. Return to Available offline and confirm the document appears with a size and save time.
+6. Disconnect from the internet, or use your browser's offline network setting, then reopen/reload the compiled app. The saved view shows the last sync time. Browse your prepared timetable, notices and deadlines, and download a saved file copy.
+7. Reconnect and use **Reconnect** / **Refresh offline information** to validate current membership and obtain a fresh complete snapshot.
 
-```sh
-npm run start
-```
+Prepared access lasts up to seven days. It is read-only and specific to this browser/device. It does not permit a new account to sign in while offline. It does not save rosters, profile photos, admin controls, or all lecture bytes automatically.
 
-Open **[http://127.0.0.1:3001](http://127.0.0.1:3001)**. In this mode the backend serves the compiled interface as well as the API. It still uses your local configuration; running a compiled build does not turn demonstration identities into secure public accounts.
+**Bookmark**, **Download**, and **Save offline** are different: a bookmark is an account reference; Download makes a separate browser/device file; Save offline adds a copy to ZabSync's local device library. Use Clear this device to remove the in-app snapshot/files. Signing out or switching accounts also clears them.
 
-## Common first-run problems
+See [OFFLINE](OFFLINE.md) for limits and the detailed acceptance checks. These steps are for you to verify on your own browser; no physical device test is claimed by the ZIP.
 
-| Problem                                        | What to do                                                                                                                                   |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `node` or `npm` is not recognized              | Install Node 24 and reopen the terminal. Check the version commands again.                                                                   |
-| `package.json` cannot be found                 | You are in the wrong folder. Open the extracted folder that contains `package.json`.                                                         |
-| `npm.ps1` is blocked on Windows                | Use `npm.cmd ci`, `npm.cmd run setup:demo`, and `npm.cmd run dev`.                                                                           |
-| `npm ci` reports a download/network error      | Reconnect to the internet and rerun it. If an error persists, share the error text after removing secrets.                                   |
-| Port `3001` or `5173` is already in use        | Stop your previous project terminal with Ctrl+C. Start only one copy at a time.                                                              |
-| Browser says it cannot connect                 | Confirm that `npm run dev` is still running and use `http://127.0.0.1:5173`.                                                                 |
-| API or configuration error                     | Read the terminal error. In a new demo folder, run `npm run setup:demo` before starting.                                                     |
-| Changes to `.env` appear ignored               | Stop and restart the application; environment variables are read when it starts.                                                             |
-| A phone cannot open the computer's `localhost` | `localhost` on the phone means the phone itself. This demo deliberately binds to the computer only. Real device deployment is handled later. |
-| Timetable does not work in airplane mode       | Offline academic data is implemented in Checkpoint 3. This foundation does not yet contain it.                                               |
+## 9. Add your developer information
 
-## Keep these files private
+As Master Admin, open the dedicated **Developer** tab. Enter **Your name**, **Title** and **Your introduction**. **Portfolio link**, **Updates from you** and other application links are optional; use HTTPS for any links you add. Choose **Save developer draft** to keep the content private and **Preview introduction** to review it. When it is ready, turn on **Publish developer details** and choose **Save & publish profile**.
 
-Keep `.env`, the `data/` directory, and any downloaded service-account key private. They are local configuration/data, not files to include when sharing the source project. The distributed ZIP should contain `.env.example` with empty credential fields.
+Switch to Student and open **Meet the Developer** from the sidebar card or More menu. It is a separate page for your published introduction, portfolio, updates and promoted applications. **Get the App** also links to it. The destination stays understandable before publication with an empty-state message, rather than silently disappearing. To unpublish, return to **Developer**, turn off **Publish developer details**, and select **Save developer draft**. No Tutor biography is reused automatically.
 
-When moving to a later checkpoint, keep the previous folder as a backup. The next ZIP will explain how to transfer settings and migrate data. Do not copy old `node_modules` or `dist` folders over a newer version.
+## 10. Profiles, maintenance and feature controls
 
-## Your next step
+Use your avatar or **More → My profile** to change your display name and optional unique username. A profile photo may be JPEG/PNG/WebP below 2 MiB. Verified email, roll number derived from that email, and the internal ID stay stable.
 
-Run the demonstration and note any error and the action immediately before it. We can resolve problems within Checkpoint 2 before progressing. Firebase/Turso setup is optional for this first local check; its instructions are in [CONFIGURATION_CHECKLIST.md](CONFIGURATION_CHECKLIST.md).
+**Master Admin → App controls** manages the implemented subjects, resources, announcements, timetable, deadlines, profile photos and Developer features. It also provides read-only maintenance. After changing a feature switch or maintenance setting, choose **Save application settings**. Account suspension, global notices, activity history and trash are in the same owner dashboard.
+
+A feature switch controls code that already exists. Future functionality still needs a source update, tests and a deployment through GitHub.
+
+## Reopen later and troubleshoot
+
+Press **Ctrl+C** to stop. Later run `npm run dev` for development or `npm start` for the compiled application. Local data stays under `data/`; stopping does not normally erase it. Rebuild after source changes before using the compiled application. Run `npm pkg get version` in the folder you are starting; this corrected release reports `0.3.1`. After replacing the deployed build, accept the app update and reopen to avoid retaining the previous interface.
+
+| Problem                              | Next action                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Node/npm missing                     | Install Node 24 and reopen the terminal                                                  |
+| `package.json` not found             | Change to the extracted project folder                                                   |
+| Windows `npm.ps1` blocked            | Use `npm.cmd` for the same command                                                       |
+| Dependency download failed           | Restore internet access and retry `npm ci`                                               |
+| Port already in use                  | Stop the previous project terminal; run one copy                                         |
+| Browser cannot connect               | Confirm the terminal is running and use 5173 for dev or 3001 for compiled mode           |
+| Old app name after upgrade           | Set `APP_NAME=ZabSync`, restart, rebuild, and accept the offered web-app update          |
+| No offline reopening                 | Use a compiled build, prepare the device online, and wait for shell readiness            |
+| Saved information expired            | Reconnect, sign in if needed, and prepare it again                                       |
+| Phone cannot open computer localhost | Use a configured HTTPS deployment with Firebase; a phone's localhost is the phone itself |
+| Conflict while saving                | Refresh and review the latest version before saving again                                |
+
+Keep `.env`, `data/`, downloaded service-account keys and real student data private. They are not source files to commit or put in a shared ZIP. The included `.env.example` contains configuration names and empty credential fields.
+
+Run `npm run build` and then `npm test` to repeat the automated checks. For real university accounts, continue with [CONFIGURATION_CHECKLIST](CONFIGURATION_CHECKLIST.md). For home-screen installation, see [INSTALL_AND_ANDROID](INSTALL_AND_ANDROID.md).

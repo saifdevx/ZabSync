@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom';
 import {
   ArrowUpRight,
+  Code2,
+  ChevronDown,
+  Plus,
+  Trash2,
   BookOpen,
   Camera,
   Check,
@@ -15,7 +19,6 @@ import {
   Save,
   Settings2,
   ShieldCheck,
-  Trash2,
   UserRound,
   Wrench,
 } from 'lucide-react';
@@ -32,12 +35,16 @@ import {
   useToast,
 } from './components';
 import type { AppUser } from './types';
+import { useSite } from './site';
+import { isMaster } from './permissions';
 
 export interface FeatureSettings {
   subjects: boolean;
   resources: boolean;
   announcements: boolean;
-  tutor: boolean;
+  developer: boolean;
+  timetable: boolean;
+  deadlines: boolean;
   profilePhotos: boolean;
 }
 interface SiteSettings {
@@ -46,21 +53,20 @@ interface SiteSettings {
   maintenance: { enabled: boolean; message: string };
   updatedAt: string;
 }
-interface TutorProfile {
+interface DeveloperProfile {
   version: number;
   published: boolean;
   title: string;
   name: string;
   bio: string;
-  subjects: string[];
-  contactLabel: string;
-  contactUrl: string;
-  bookingUrl: string;
+  portfolioUrl: string;
+  updatesText: string;
+  apps: { name: string; description: string; url: string }[];
   updatedAt: string;
 }
 
-function useOperationResource<T>(path: string) {
-  const { request, me } = useAuth();
+function useOperationResource<T>(path: string | null) {
+  const { request, me, offline, lastSyncedAt } = useAuth();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -70,21 +76,22 @@ function useOperationResource<T>(path: string) {
     let active = true;
     setData(null);
     setError('');
-    setLoading(true);
-    request<T>(path)
-      .then((value) => {
-        if (active) setData(value);
-      })
-      .catch((error) => {
-        if (active) setError(errorMessage(error));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    setLoading(!!path);
+    if (path)
+      request<T>(path)
+        .then((value) => {
+          if (active) setData(value);
+        })
+        .catch((error) => {
+          if (active) setError(errorMessage(error));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
     return () => {
       active = false;
     };
-  }, [path, request, me?.user.id, revision]);
+  }, [path, request, me?.user.id, offline, lastSyncedAt, revision]);
   return { data, error, loading, reload };
 }
 
@@ -98,7 +105,7 @@ export function ProfilePage() {
 function ProfileEditor({ user }: { user: AppUser }) {
   const auth = useAuth();
   const toast = useToast();
-  const site = useOperationResource<{ settings: SiteSettings }>('/site');
+  const site = useSite();
   const [displayName, setDisplayName] = useState(user.displayName);
   const [username, setUsername] = useState(user.username ?? '');
   const [busy, setBusy] = useState('');
@@ -110,8 +117,8 @@ function ProfileEditor({ user }: { user: AppUser }) {
   const nameChanged =
     displayName.trim() !== user.displayName ||
     username.trim().toLowerCase().replace(/^@/, '') !== (user.username ?? '');
-  const readOnly = site.data?.settings.maintenance.enabled && user.role !== 'master';
-  const photoEnabled = site.data?.settings.features.profilePhotos !== false;
+  const readOnly = auth.offline || (site.settings?.maintenance.enabled && user.role !== 'master');
+  const photoEnabled = site.settings?.features.profilePhotos !== false;
 
   useEffect(() => {
     if (!file) {
@@ -265,13 +272,16 @@ function ProfileEditor({ user }: { user: AppUser }) {
             </div>
             {readOnly && (
               <div className="info-box">
-                Profile changes are paused during maintenance. You can still view your account.
+                {auth.offline
+                  ? 'Your saved profile is read-only. Reconnect to change your name, username or photo.'
+                  : 'Profile changes are paused during maintenance. You can still view your account.'}
               </div>
             )}
             <form
               className="form-stack"
               onSubmit={async (event: FormEvent) => {
                 event.preventDefault();
+                if (readOnly) return;
                 setBusy('details');
                 setError('');
                 try {
@@ -374,7 +384,7 @@ function ProfileEditor({ user }: { user: AppUser }) {
             </dl>
             <div className="ops-form-footer">
               <Link to="/install" className="text-button">
-                Get XVIA on your home screen <ArrowUpRight size={16} />
+                Get ZabSync on your home screen <ArrowUpRight size={16} />
               </Link>
               <button
                 className="button button-secondary"
@@ -443,101 +453,125 @@ function safeHttps(value: string): string | null {
   }
 }
 
-export function TutorPage() {
-  const { data, error, loading, reload } = useOperationResource<{ tutor: TutorProfile | null }>(
-    '/tutor',
+function DeveloperContent({ profile }: { profile: DeveloperProfile }) {
+  return (
+    <div className="developer-content">
+      <div className="developer-heading">
+        <span className="developer-monogram">{profile.name.trim().slice(0, 1) || 'Z'}</span>
+        <div>
+          <h3>{profile.name}</h3>
+          <p>{profile.title}</p>
+        </div>
+        {safeHttps(profile.portfolioUrl) && (
+          <a
+            className="button button-secondary button-small"
+            href={safeHttps(profile.portfolioUrl)!}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Portfolio
+            <ArrowUpRight size={16} />
+          </a>
+        )}
+      </div>
+      <p className="ops-prose">{profile.bio}</p>
+      {profile.updatesText && (
+        <div className="developer-update">
+          <strong>From the developer</strong>
+          <p className="ops-prose">{profile.updatesText}</p>
+        </div>
+      )}
+      {profile.apps.length > 0 && (
+        <div className="developer-apps">
+          <h4>More things I’m building</h4>
+          {profile.apps.map(
+            (app, index) =>
+              safeHttps(app.url) && (
+                <a
+                  href={safeHttps(app.url)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  key={`${app.name}-${index}`}
+                >
+                  <span className="developer-app-mark">
+                    <Code2 size={19} />
+                  </span>
+                  <span>
+                    <strong>{app.name}</strong>
+                    <small>{app.description}</small>
+                  </span>
+                  <ArrowUpRight size={19} />
+                </a>
+              ),
+          )}
+        </div>
+      )}
+    </div>
   );
-  const isMaster = useAuth().me?.user.role === 'master';
-  if (loading) return <Spinner label="Loading tutor information…" />;
-  if (error) return <ErrorNotice message={error} retry={reload} />;
-  const tutor = data?.tutor;
+}
+export function DeveloperSection() {
+  return (
+    <section className="panel ops-section developer-install-link">
+      <Code2 size={25} />
+      <div>
+        <h2>Meet the Developer</h2>
+        <p>Read the introduction, updates and other projects behind ZabSync.</p>
+      </div>
+      <Link className="button button-secondary" to="/developer">
+        Open developer page <ArrowUpRight size={16} />
+      </Link>
+    </section>
+  );
+}
+export function DeveloperPage() {
+  const auth = useAuth();
+  const site = useSite();
+  const owner = isMaster(auth.me);
+  const enabled = site.settings?.features.developer === true;
+  const state = useOperationResource<{ developer: DeveloperProfile | null }>(
+    enabled && !auth.offline ? '/developer' : null,
+  );
   return (
     <>
       <ActionHeading
-        eyebrow="A little guidance goes a long way"
-        title="Meet your tutor"
-        subtitle="Extra support for the subjects you want to understand better."
-      />
-      {tutor ? (
-        <article className="ops-tutor-profile panel">
-          <div className="ops-tutor-top">
-            <span className="ops-tutor-icon">
-              <GraduationCap size={36} />
-            </span>
-            <div>
-              <span className="eyebrow">Tutor</span>
-              <h2>{tutor.name}</h2>
-              <p>{tutor.title}</p>
-            </div>
-          </div>
-          <div className="ops-tutor-body">
-            <h3>About your tutor</h3>
-            <p className="ops-prose">{tutor.bio}</p>
-            {tutor.subjects.length > 0 && (
-              <section className="ops-tutor-subjects">
-                <h3>
-                  <BookOpen size={19} />
-                  Subjects & support
-                </h3>
-                <div className="ops-chip-list">
-                  {tutor.subjects.map((subject, index) => (
-                    <span key={`${index}-${subject}`} className="ops-chip">
-                      {subject}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            )}
-            {(safeHttps(tutor.contactUrl) || safeHttps(tutor.bookingUrl)) && (
-              <div className="ops-tutor-contact">
-                {safeHttps(tutor.contactUrl) && (
-                  <a
-                    className="button button-primary"
-                    href={safeHttps(tutor.contactUrl)!}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {tutor.contactLabel || 'Contact tutor'}
-                    <ExternalLink size={17} />
-                  </a>
-                )}
-                {safeHttps(tutor.bookingUrl) && (
-                  <a
-                    className="button button-secondary"
-                    href={safeHttps(tutor.bookingUrl)!}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Arrange a session
-                    <ArrowUpRight size={17} />
-                  </a>
-                )}
-              </div>
-            )}
-            <p className="ops-help">
-              Details provided by the app administrator
-              {tutor.updatedAt ? ` · Updated ${formatDate(tutor.updatedAt)}` : ''}.
-            </p>
-          </div>
-        </article>
-      ) : (
-        <section className="panel">
-          <EmptyState
-            icon={<GraduationCap size={32} />}
-            title="Tutor details are on their way."
-            action={
-              isMaster ? (
-                <Link className="button button-primary" to="/admin">
-                  Add tutor details
-                  <ArrowUpRight size={17} />
-                </Link>
-              ) : undefined
-            }
-          >
-            The app administrator has not published a tutor profile yet. Check back here for
-            subjects, contact details, and session information.
-          </EmptyState>
+        eyebrow="BEHIND ZABSYNC"
+        title="Meet the Developer"
+        subtitle="The person, projects and updates behind your campus app."
+      >
+        {owner && !auth.offline && (
+          <Link className="button button-primary" to="/admin?tab=developer">
+            <Code2 size={17} />
+            Edit Developer page
+          </Link>
+        )}
+      </ActionHeading>
+      {auth.offline ? (
+        <EmptyState icon={<Code2 size={28} />} title="Connect to view the Developer page.">
+          This introduction is available online. Your prepared classes and timetable remain
+          available offline.
+        </EmptyState>
+      ) : !enabled ? (
+        <EmptyState
+          icon={<Code2 size={28} />}
+          title="The Developer page is temporarily unavailable."
+        >
+          The owner can make this page available from the application controls.
+        </EmptyState>
+      ) : state.loading ? (
+        <Spinner label="Loading developer introduction…" />
+      ) : state.error ? (
+        <ErrorNotice message={state.error} retry={state.reload} />
+      ) : state.data?.developer ? (
+        <section className="panel developer-profile-page">
+          <DeveloperContent profile={state.data.developer} />
+          <p className="developer-updated">Updated {formatDate(state.data.developer.updatedAt)}</p>
         </section>
+      ) : (
+        <EmptyState icon={<Code2 size={28} />} title="An introduction is on its way.">
+          {owner
+            ? 'Add your details in the Developer editor, preview them, then publish when ready.'
+            : 'The developer has not published an introduction yet. Their profile and project links will appear here when available.'}
+        </EmptyState>
       )}
     </>
   );
@@ -559,7 +593,22 @@ const featureLabels: { key: keyof FeatureSettings; title: string; description: s
     title: 'Announcements',
     description: 'Subject, class, and university-wide updates.',
   },
-  { key: 'tutor', title: 'Tutor', description: 'Show your published tutor profile to students.' },
+  {
+    key: 'developer',
+    title: 'Meet the Developer',
+    description:
+      'Make your published introduction, portfolio and other apps available on the Developer page.',
+  },
+  {
+    key: 'timetable',
+    title: 'Timetable',
+    description: 'Weekly classes, teachers, rooms, and one-time schedule changes.',
+  },
+  {
+    key: 'deadlines',
+    title: 'Deadlines',
+    description: 'Quizzes, assignments, events, and personal completion.',
+  },
   {
     key: 'profilePhotos',
     title: 'Profile photos',
@@ -569,9 +618,11 @@ const featureLabels: { key: keyof FeatureSettings; title: string; description: s
 
 export function AdminSettingsPanel() {
   const auth = useAuth();
-  const settings = useOperationResource<{ settings: SiteSettings }>('/admin/settings');
-  const tutor = useOperationResource<{ tutor: TutorProfile }>('/admin/tutor');
-  if (auth.me?.user.role !== 'master')
+  const allowed = isMaster(auth.me) && !auth.offline;
+  const settings = useOperationResource<{ settings: SiteSettings }>(
+    allowed ? '/admin/settings' : null,
+  );
+  if (!allowed)
     return <ErrorNotice message="Only the Master Admin can change application settings." />;
   return (
     <div className="ops-stack">
@@ -581,7 +632,7 @@ export function AdminSettingsPanel() {
         </span>
         <div>
           <h2>Your control room</h2>
-          <p>Manage the features students see, maintenance, and your tutor profile.</p>
+          <p>Manage the features students see and read-only maintenance.</p>
         </div>
       </div>
       {settings.loading ? (
@@ -597,23 +648,13 @@ export function AdminSettingsPanel() {
           />
         )
       )}
-      {tutor.loading ? (
-        <Spinner label="Loading tutor settings…" />
-      ) : tutor.error ? (
-        <ErrorNotice message={tutor.error} retry={tutor.reload} />
-      ) : (
-        tutor.data && (
-          <TutorEditor
-            key={`tutor-${tutor.data.tutor.version}`}
-            initial={tutor.data.tutor}
-            onReload={tutor.reload}
-          />
-        )
-      )}
+      <Link className="text-button" to="/admin?tab=developer">
+        Edit Developer page <ArrowUpRight size={16} />
+      </Link>
       <section className="panel ops-release-note">
         <div>
           <ShieldCheck size={22} />
-          <h3>Growing XVIA</h3>
+          <h3>Growing ZabSync</h3>
         </div>
         <p>
           These switches control features already built into the app. New functionality is added to
@@ -624,6 +665,55 @@ export function AdminSettingsPanel() {
           Web and phone installation <ArrowUpRight size={16} />
         </Link>
       </section>
+    </div>
+  );
+}
+
+export function AdminDeveloperPanel() {
+  const auth = useAuth(),
+    site = useSite();
+  const allowed = isMaster(auth.me) && !auth.offline;
+  const state = useOperationResource<{ developer: DeveloperProfile }>(
+    allowed ? '/admin/developer' : null,
+  );
+  if (!allowed)
+    return <ErrorNotice message="Only an online owner account can edit the Developer page." />;
+  return (
+    <div className="ops-stack">
+      <div className="ops-admin-intro">
+        <span className="ops-admin-icon">
+          <Code2 size={25} />
+        </span>
+        <div>
+          <h2>Your Developer page</h2>
+          <p>
+            Write your introduction, add other apps, preview the draft, and publish when it is
+            ready.
+          </p>
+        </div>
+        <Link className="button button-secondary" to="/developer">
+          View public page <ArrowUpRight size={16} />
+        </Link>
+      </div>
+      {site.settings?.features.developer !== true && (
+        <p className="inline-notice">
+          The Developer feature is currently disabled. You can keep editing your draft; enable it in
+          App controls to show the published page.
+        </p>
+      )}
+      {state.loading ? (
+        <Spinner label="Loading developer settings…" />
+      ) : state.error ? (
+        <ErrorNotice message={state.error} retry={state.reload} />
+      ) : (
+        state.data && (
+          <DeveloperEditor
+            key={`developer-${state.data.developer.version}`}
+            initial={state.data.developer}
+            onReload={state.reload}
+          />
+        )
+      )}
     </div>
   );
 }
@@ -669,7 +759,7 @@ function SettingsEditor({ initial, onReload }: { initial: SiteSettings; onReload
               method: 'PATCH',
               body: JSON.stringify({ version: initial.version, features, maintenance }),
             });
-            window.dispatchEvent(new CustomEvent('xvia:settings-updated'));
+            window.dispatchEvent(new CustomEvent('zabsync:settings-updated'));
             toast('Application settings saved.');
             onReload();
           } catch (error) {
@@ -715,7 +805,7 @@ function SettingsEditor({ initial, onReload }: { initial: SiteSettings; onReload
           </legend>
           <label className="ops-toggle-row">
             <div>
-              <strong>Pause changes for students and representatives</strong>
+              <strong>Pause changes for students and class admins</strong>
               <span>
                 They can still read available content. Master Admin controls remain available.
               </span>
@@ -777,52 +867,50 @@ function SettingsEditor({ initial, onReload }: { initial: SiteSettings; onReload
   );
 }
 
-function TutorEditor({ initial, onReload }: { initial: TutorProfile; onReload: () => void }) {
+function DeveloperEditor({
+  initial,
+  onReload,
+}: {
+  initial: DeveloperProfile;
+  onReload: () => void;
+}) {
   const auth = useAuth();
   const toast = useToast();
   const [draft, setDraft] = useState(initial);
-  const [subjects, setSubjects] = useState(initial.subjects.join('\n'));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(false);
-  const [confirmReload, setConfirmReload] = useState(false);
-  const set = (key: keyof TutorProfile, value: string | boolean) =>
+  const [discard, setDiscard] = useState(false);
+  const changed = JSON.stringify(initial) !== JSON.stringify(draft);
+  const field = (key: 'name' | 'title' | 'bio' | 'portfolioUrl' | 'updatesText', value: string) =>
     setDraft((old) => ({ ...old, [key]: value }));
-  const changed =
-    JSON.stringify(draft) !== JSON.stringify(initial) || subjects !== initial.subjects.join('\n');
   return (
-    <section className="panel ops-tutor-editor">
+    <section className="panel developer-editor">
       <div className="section-heading">
         <div>
-          <h2>Your tutor profile</h2>
-          <p>Add your own introduction and contact details, then publish when ready.</p>
+          <h2>Meet the Developer</h2>
+          <p>
+            Your introduction, portfolio, and other applications. Publish them on the Developer
+            page.
+          </p>
         </div>
         <button
           className="icon-button"
+          aria-label="Refresh developer settings"
           disabled={busy}
-          aria-label="Refresh tutor settings"
-          onClick={() => {
-            if (changed) setConfirmReload(true);
-            else onReload();
-          }}
+          onClick={() => (changed ? setDiscard(true) : onReload())}
         >
           <RefreshCw size={18} />
         </button>
       </div>
       <form
         className="form-stack"
-        onSubmit={async (event) => {
-          event.preventDefault();
+        onSubmit={async (e) => {
+          e.preventDefault();
           setBusy(true);
           setError('');
           try {
-            const normalizedSubjects = subjects
-              .split('\n')
-              .map((subject) => subject.trim())
-              .filter(Boolean);
-            if (normalizedSubjects.length > 20)
-              throw new Error('Keep the subject list to 20 entries or fewer.');
-            await auth.request('/admin/tutor', {
+            await auth.request('/admin/developer', {
               method: 'PATCH',
               body: JSON.stringify({
                 version: initial.version,
@@ -830,17 +918,16 @@ function TutorEditor({ initial, onReload }: { initial: TutorProfile; onReload: (
                 title: draft.title.trim(),
                 name: draft.name.trim(),
                 bio: draft.bio.trim(),
-                subjects: normalizedSubjects,
-                contactLabel: draft.contactLabel.trim(),
-                contactUrl: draft.contactUrl.trim(),
-                bookingUrl: draft.bookingUrl.trim(),
+                portfolioUrl: draft.portfolioUrl.trim(),
+                updatesText: draft.updatesText.trim(),
+                apps: draft.apps.map((a) => ({
+                  name: a.name.trim(),
+                  description: a.description.trim(),
+                  url: a.url.trim(),
+                })),
               }),
             });
-            toast(
-              draft.published
-                ? 'Tutor profile published.'
-                : 'Tutor draft saved. Students cannot see it yet.',
-            );
+            toast(draft.published ? 'Developer details published.' : 'Developer draft saved.');
             onReload();
           } catch (error) {
             setError(errorMessage(error));
@@ -852,103 +939,152 @@ function TutorEditor({ initial, onReload }: { initial: TutorProfile; onReload: (
         <fieldset className="ops-form-fields" disabled={busy}>
           <div className="form-two">
             <label>
-              Name
+              Your name
               <input
+                maxLength={100}
                 value={draft.name}
                 required={draft.published}
-                maxLength={100}
-                autoComplete="name"
-                onChange={(event) => set('name', event.target.value)}
-                placeholder="Your name"
+                onChange={(e) => field('name', e.target.value)}
               />
             </label>
             <label>
               Title
               <input
+                maxLength={100}
                 value={draft.title}
                 required={draft.published}
-                maxLength={100}
-                onChange={(event) => set('title', event.target.value)}
-                placeholder="e.g. Computer science tutor"
+                onChange={(e) => field('title', e.target.value)}
+                placeholder="e.g. Student developer"
               />
             </label>
           </div>
           <label>
-            About you
+            Your introduction
             <textarea
-              value={draft.bio}
-              required={draft.published}
+              rows={5}
               maxLength={4000}
-              rows={6}
-              onChange={(event) => set('bio', event.target.value)}
-              placeholder="Tell students what you teach, your approach, and how you can help."
+              required={draft.published}
+              value={draft.bio}
+              onChange={(e) => field('bio', e.target.value)}
+              placeholder="Tell students about yourself and why you built ZabSync."
             />
-            <span className="ops-help">Plain text · {draft.bio.length}/4,000 characters</span>
           </label>
           <label>
-            Subjects and support
-            <textarea
-              value={subjects}
-              maxLength={1800}
-              rows={4}
-              onChange={(event) => setSubjects(event.target.value)}
-              placeholder={'Database systems\nOperating systems\nAssignment guidance'}
-            />
-            <span className="ops-help">
-              One subject per line, up to 20 entries. Keep each entry under 80 characters.
-            </span>
-          </label>
-          <div className="form-two">
-            <label>
-              Contact button label
-              <input
-                value={draft.contactLabel}
-                maxLength={60}
-                onChange={(event) => set('contactLabel', event.target.value)}
-                placeholder="e.g. Contact me"
-              />
-            </label>
-            <label>
-              Contact link
-              <input
-                type="url"
-                pattern="https://.*"
-                value={draft.contactUrl}
-                maxLength={1000}
-                onChange={(event) => set('contactUrl', event.target.value)}
-                placeholder="https://…"
-              />
-            </label>
-          </div>
-          <label>
-            Session booking link <span className="optional">Optional</span>
+            Portfolio link
             <input
               type="url"
               pattern="https://.*"
-              value={draft.bookingUrl}
               maxLength={1000}
-              onChange={(event) => set('bookingUrl', event.target.value)}
-              placeholder="https://…"
+              value={draft.portfolioUrl}
+              onChange={(e) => field('portfolioUrl', e.target.value)}
+              placeholder="https://your-portfolio.example"
             />
-            <span className="ops-help">
-              Use HTTPS links, such as your contact page or booking service. Leave a link empty to
-              hide its button.
-            </span>
           </label>
+          <label>
+            Updates from you
+            <textarea
+              rows={3}
+              maxLength={4000}
+              value={draft.updatesText}
+              onChange={(e) => field('updatesText', e.target.value)}
+              placeholder="Share what you’re building next or an update about your apps."
+            />
+          </label>
+          <div className="developer-app-editor">
+            <div className="section-heading">
+              <h3>Your applications</h3>
+              <button
+                type="button"
+                className="button button-secondary button-small"
+                disabled={draft.apps.length >= 12}
+                onClick={() =>
+                  setDraft((old) => ({
+                    ...old,
+                    apps: [...old.apps, { name: '', description: '', url: '' }],
+                  }))
+                }
+              >
+                <Plus size={16} />
+                Add an app
+              </button>
+            </div>
+            {draft.apps.map((app, index) => (
+              <fieldset key={index} className="developer-app-form">
+                <legend>Application {index + 1}</legend>
+                <label>
+                  App name
+                  <input
+                    required
+                    maxLength={80}
+                    value={app.name}
+                    onChange={(e) =>
+                      setDraft((old) => ({
+                        ...old,
+                        apps: old.apps.map((a, i) =>
+                          i === index ? { ...a, name: e.target.value } : a,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Description
+                  <input
+                    maxLength={500}
+                    value={app.description}
+                    onChange={(e) =>
+                      setDraft((old) => ({
+                        ...old,
+                        apps: old.apps.map((a, i) =>
+                          i === index ? { ...a, description: e.target.value } : a,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  App link
+                  <input
+                    required
+                    type="url"
+                    pattern="https://.*"
+                    maxLength={1000}
+                    value={app.url}
+                    onChange={(e) =>
+                      setDraft((old) => ({
+                        ...old,
+                        apps: old.apps.map((a, i) =>
+                          i === index ? { ...a, url: e.target.value } : a,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <button
+                  className="text-button danger"
+                  type="button"
+                  onClick={() =>
+                    setDraft((old) => ({ ...old, apps: old.apps.filter((_, i) => i !== index) }))
+                  }
+                >
+                  <Trash2 size={15} />
+                  Remove this app
+                </button>
+              </fieldset>
+            ))}
+          </div>
           <label className="ops-toggle-row ops-publish-toggle">
             <div>
-              <strong>Publish tutor profile</strong>
-              <span>
-                Students can see it when this is on and the Tutor feature is enabled above.
-              </span>
+              <strong>Publish developer details</strong>
+              <span>Keep this off to save a private draft.</span>
             </div>
             <span className="ops-switch">
               <input
                 type="checkbox"
                 role="switch"
                 checked={draft.published}
-                aria-label="Publish tutor profile"
-                onChange={(event) => set('published', event.target.checked)}
+                aria-label="Publish developer details"
+                onChange={(e) => setDraft((old) => ({ ...old, published: e.target.checked }))}
               />
               <span aria-hidden="true" />
             </span>
@@ -957,55 +1093,35 @@ function TutorEditor({ initial, onReload }: { initial: TutorProfile; onReload: (
         <ErrorNotice message={error} />
         <div className="ops-form-footer">
           <button
-            type="button"
             className="button button-secondary"
+            type="button"
             onClick={() => setPreview(true)}
           >
             Preview introduction
           </button>
           <button className="button button-primary" disabled={busy || !changed}>
-            {busy ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
-            {draft.published ? 'Save & publish profile' : 'Save tutor draft'}
+            <Save size={17} />
+            {busy ? 'Saving…' : draft.published ? 'Save & publish profile' : 'Save developer draft'}
           </button>
         </div>
       </form>
       {preview && (
         <Modal
-          title="Tutor introduction preview"
-          description="Your draft is only visible here until you save and publish it."
+          title="Developer introduction preview"
+          description="Only published, saved details appear to students."
           onClose={() => setPreview(false)}
         >
-          <div className="ops-preview">
-            <h2>{draft.name || 'Your name'}</h2>
-            <p className="ops-teal">{draft.title || 'Your tutor title'}</p>
-            <p className="ops-prose">{draft.bio || 'Your introduction will appear here.'}</p>
-            <div className="ops-chip-list">
-              {subjects
-                .split('\n')
-                .map((subject) => subject.trim())
-                .filter(Boolean)
-                .map((subject, index) => (
-                  <span key={index} className="ops-chip">
-                    {subject}
-                  </span>
-                ))}
-            </div>
-          </div>
-          <div className="modal-actions">
-            <button className="button button-primary" onClick={() => setPreview(false)}>
-              Back to editing
-            </button>
-          </div>
+          <DeveloperContent profile={draft} />
         </Modal>
       )}
-      {confirmReload && (
+      {discard && (
         <Modal
-          title="Discard your tutor edits?"
-          description="Refreshing will replace this draft with the last saved profile."
-          onClose={() => setConfirmReload(false)}
+          title="Discard your edits?"
+          description="Refreshing will load the last saved developer details."
+          onClose={() => setDiscard(false)}
         >
           <div className="modal-actions">
-            <button className="button button-secondary" onClick={() => setConfirmReload(false)}>
+            <button className="button button-secondary" onClick={() => setDiscard(false)}>
               Keep editing
             </button>
             <button className="button button-primary" onClick={onReload}>
@@ -1024,7 +1140,7 @@ export function UserStatusControl({ user, onChanged }: { user: AppUser; onChange
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  if (auth.me?.user.role !== 'master' || user.role === 'master' || user.id === auth.me.user.id)
+  if (!isMaster(auth.me) || auth.offline || user.role === 'master' || user.id === auth.me?.user.id)
     return null;
   const suspended = user.status === 'suspended';
   return (
@@ -1044,8 +1160,8 @@ export function UserStatusControl({ user, onChanged }: { user: AppUser; onChange
           title={suspended ? 'Restore this account?' : 'Suspend this account?'}
           description={
             suspended
-              ? `${user.displayName} will be able to access XVIA again. Their class memberships remain in place.`
-              : `${user.displayName} will lose access to XVIA. Their content and class memberships are kept so access can be restored later.`
+              ? `${user.displayName} will be able to access ZabSync again. Their class memberships remain in place.`
+              : `${user.displayName} will lose access to ZabSync. Their content and class memberships are kept so access can be restored later.`
           }
           onClose={() => {
             if (!busy) setOpen(false);

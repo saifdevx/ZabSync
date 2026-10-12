@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { ActionHeading, ErrorNotice, Modal, useToast } from './components';
+import { DeveloperSection } from './OperationsPages';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<{ outcome: 'accepted' | 'dismissed' }>;
@@ -136,7 +137,7 @@ export function InstallProvider({ children }: { children: ReactNode }) {
         applyUpdate: () => {
           if (registration?.waiting) {
             reloadRequested = true;
-            registration.waiting.postMessage({ type: 'XVIA_ACTIVATE_UPDATE' });
+            registration.waiting.postMessage({ type: 'ZABSYNC_ACTIVATE_UPDATE' });
           } else {
             // A different tab may already have activated the update. This is an explicit reload.
             window.location.reload();
@@ -165,13 +166,13 @@ export function InstallBanner() {
     <>
       <aside
         className={`ops-install-banner ${install.updateAvailable ? 'ops-update-banner' : ''}`}
-        aria-label={install.updateAvailable ? 'Application update' : 'Install XVIA'}
+        aria-label={install.updateAvailable ? 'Application update' : 'Install ZabSync'}
       >
         {install.updateAvailable ? <RefreshCw size={21} /> : <Smartphone size={21} />}
         <div>
           <strong>
             {install.updateAvailable
-              ? 'A fresh version of XVIA is ready.'
+              ? 'A fresh version of ZabSync is ready.'
               : 'A place on your home screen.'}
           </strong>
           <span>
@@ -204,7 +205,7 @@ export function InstallBanner() {
       </aside>
       {confirmUpdate && (
         <Modal
-          title="Ready to update XVIA?"
+          title="Ready to update ZabSync?"
           description="Save any open edits first. Updating reloads this page, so unsaved form changes will be lost."
           onClose={() => setConfirmUpdate(false)}
         >
@@ -236,7 +237,7 @@ export function InstallPage() {
     try {
       await navigator.clipboard.writeText(appUrl);
       setCopied(true);
-      toast('XVIA link copied.');
+      toast('ZabSync link copied.');
     } catch {
       setError('The browser could not copy the link. Select and copy the address shown below.');
     }
@@ -244,16 +245,16 @@ export function InstallPage() {
   return (
     <>
       <ActionHeading
-        eyebrow="XVIA · Node Compass Task"
+        eyebrow="ZabSync · Built for Students. Designed for Success"
         title="Your campus, one tap away"
-        subtitle="Use XVIA in your browser or add it to your home screen."
+        subtitle="Use ZabSync in your browser or add it to your home screen."
       />
       <section className="ops-install-hero">
         <div className="ops-install-brand">
-          <img src="/icons/xvia-icon.png" alt="SZABIST University" width="82" height="82" />
+          <img src="/icons/zabsync-icon.png" alt="SZABIST University" width="82" height="82" />
           <div>
-            <span className="eyebrow">Node Compass Task</span>
-            <h2>XVIA</h2>
+            <span className="eyebrow">Built for Students. Designed for Success</span>
+            <h2>ZabSync</h2>
             <p>Less searching. More learning.</p>
           </div>
         </div>
@@ -281,7 +282,7 @@ export function InstallPage() {
             }}
           >
             <Download size={19} />
-            {busy ? 'Opening installation…' : 'Install XVIA'}
+            {busy ? 'Opening installation…' : 'Install ZabSync'}
           </button>
         ) : (
           <span className="ops-install-hint">
@@ -295,14 +296,14 @@ export function InstallPage() {
         <div className="info-box ops-install-local">
           <MonitorSmartphone size={20} />
           <p>
-            You’re using XVIA on this computer. To open and install it on a phone, first deploy the
+            You’re using ZabSync on this computer. To open and install it on a phone, first deploy the
             app with real university login and share its HTTPS website link.
           </p>
         </div>
       )}
       {install.registrationError && (
         <div className="info-box">
-          The browser could not prepare the offline connection page. XVIA can still be used online.
+          The browser could not prepare the offline connection page. ZabSync can still be used online.
           Try reloading when your connection is stable.
         </div>
       )}
@@ -312,12 +313,12 @@ export function InstallPage() {
             <Smartphone size={26} />
           </span>
           <h2>iPhone & iPad</h2>
-          <p>Add XVIA directly from Safari.</p>
+          <p>Add ZabSync directly from Safari.</p>
           <ol className="ops-steps">
             <li>
               <span>1</span>
               <div>
-                Open the XVIA website in <strong>Safari</strong>.
+                Open the ZabSync website in <strong>Safari</strong>.
               </div>
             </li>
             <li>
@@ -341,7 +342,7 @@ export function InstallPage() {
             </li>
           </ol>
           <p className="ops-help">
-            The XVIA icon appears on that device’s home screen. An App Store account is not needed
+            The ZabSync icon appears on that device’s home screen. An App Store account is not needed
             for this web option.
           </p>
         </article>
@@ -354,12 +355,12 @@ export function InstallPage() {
           <ol className="ops-steps">
             <li>
               <span>1</span>
-              <div>Open the XVIA website in a browser that supports web app installation.</div>
+              <div>Open the ZabSync website in a browser that supports web app installation.</div>
             </li>
             <li>
               <span>2</span>
               <div>
-                Choose <strong>Install XVIA</strong> above when it appears, or look for{' '}
+                Choose <strong>Install ZabSync</strong> above when it appears, or look for{' '}
                 <strong>Install app</strong> / <strong>Add to Home screen</strong> in the browser
                 menu.
               </div>
@@ -367,7 +368,7 @@ export function InstallPage() {
             <li>
               <span>3</span>
               <div>
-                Follow the browser’s instructions, then open XVIA from your home screen or apps
+                Follow the browser’s instructions, then open ZabSync from your home screen or apps
                 list.
               </div>
             </li>
@@ -392,7 +393,7 @@ export function InstallPage() {
             <Globe2 size={24} className="ops-teal" />
           </div>
           <label>
-            XVIA website
+            ZabSync website
             <input value={appUrl} readOnly onFocus={(event) => event.target.select()} />
           </label>
           {!local && (
@@ -407,8 +408,8 @@ export function InstallPage() {
                   onClick={() => {
                     void navigator
                       .share({
-                        title: 'XVIA · Node Compass Task',
-                        text: 'Your class, connected on XVIA.',
+                        title: 'ZabSync · Built for Students. Designed for Success',
+                        text: 'Your class, connected on ZabSync.',
                         url: appUrl,
                       })
                       .catch((err: unknown) => {
@@ -420,7 +421,7 @@ export function InstallPage() {
                   }}
                 >
                   <Share2 size={17} />
-                  Share XVIA
+                  Share ZabSync
                 </button>
               )}
             </div>
@@ -431,9 +432,7 @@ export function InstallPage() {
           <div>
             <WifiOff size={20} />
             <p>
-              This version needs internet for class content. If your connection drops, an installed
-              production build can show a reconnect page. Saved timetables and offline class content
-              will be available in a future update.
+              Prepare your timetable, deadlines, and class updates from Offline access while online. Choose individual lecture files to keep on this device. Saved content opens without a connection; changes need internet.
             </p>
           </div>
           <div>
@@ -448,6 +447,7 @@ export function InstallPage() {
           </Link>
         </section>
       </div>
+      <DeveloperSection/>
     </>
   );
 }

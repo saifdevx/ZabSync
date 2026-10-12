@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  CalendarDays,
+  Code2,
+  CheckSquare2,
+  WifiOff,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
@@ -58,56 +62,93 @@ import {
 } from './components';
 import type { AdminOverview, ClassDetail, ClassFields, ClassRequest } from './types';
 import { AnnouncementBoard, ClassAcademic, TrashPanel } from './AcademicPages';
-import { AdminSettingsPanel, UserStatusControl } from './OperationsPages';
+import { AdminDeveloperPanel, AdminSettingsPanel, UserStatusControl } from './OperationsPages';
 import { useSite } from './site';
+import { contentChanged } from './hooks';
+import { TodayCard, TimetablePanel, DeadlinesPanel } from './PlanningPages';
+import { SemesterDirectory, AddEnrolledStudent } from './AdminDirectory';
+import { canManageAcademic, enrolledClasses, isMaster as isOwnerAccount } from './permissions';
 
 // This stable campus portal is linked by the university's official ZABDESK page.
 const ZABDESK_URL = 'https://zabdesk.szabist-isb.edu.pk/';
 
-function useResource<T>(path: string) {
-  const { request, me } = useAuth();
+function useResource<T>(path: string | null) {
+  const { request, me, offline, lastSyncedAt } = useAuth();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
+    const changed = () => setRevision((value) => value + 1);
+    window.addEventListener('zabsync:content-updated', changed);
+    return () => window.removeEventListener('zabsync:content-updated', changed);
+  }, []);
+  useEffect(() => {
     let active = true;
-    setLoading(true);
+    setLoading(!!path);
     setError('');
     setData(null);
-    request<T>(path)
-      .then((value) => {
-        if (active) setData(value);
-      })
-      .catch((e) => {
-        if (active) setError(errorMessage(e));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    if (path)
+      request<T>(path)
+        .then((value) => {
+          if (active) setData(value);
+        })
+        .catch((e) => {
+          if (active) setError(errorMessage(e));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
     return () => {
       active = false;
     };
-  }, [path, request, revision, me?.user.id]);
+  }, [path, request, revision, me?.user.id, offline, lastSyncedAt]);
   return { data, error, loading, reload: useCallback(() => setRevision((value) => value + 1), []) };
 }
 
 function WorkspaceActions({ compact = false }: { compact?: boolean }) {
+  const auth = useAuth();
+  const site = useSite();
+  const [params] = useSearchParams();
+  const owner = isOwnerAccount(auth.me);
+  const paused = site.settings?.maintenance.enabled === true && !owner;
+  const selectedSemester =
+    owner && params.has('semester') ? Number(params.get('semester')) : undefined;
+  const canCreate =
+    !auth.offline &&
+    !paused &&
+    auth.me?.user.status === 'active' &&
+    (owner ||
+      (auth.me.user.role === 'student' &&
+        auth.me.canCreateClass === true &&
+        enrolledClasses(auth.me).some((entry) => entry.role === 'admin')));
   const [dialog, setDialog] = useState<'join' | 'create' | null>(null);
   return (
     <>
       <div className={`workspace-actions ${compact ? 'actions-compact' : ''}`}>
-        <button className="button button-secondary" onClick={() => setDialog('join')}>
-          <KeyRound size={17} />
-          Join a class
-        </button>
-        <button className="button button-primary" onClick={() => setDialog('create')}>
-          <Plus size={18} />
-          Create class
-        </button>
+        {!owner && (
+          <button
+            className="button button-secondary"
+            disabled={auth.offline || paused}
+            onClick={() => setDialog('join')}
+          >
+            <KeyRound size={17} />
+            Join a class
+          </button>
+        )}
+        {canCreate && (
+          <button className="button button-primary" onClick={() => setDialog('create')}>
+            <Plus size={18} />
+            Create class
+          </button>
+        )}
       </div>
-      {dialog === 'join' && <JoinModal onClose={() => setDialog(null)} />}
-      {dialog === 'create' && <CreateModal onClose={() => setDialog(null)} />}
+      {dialog === 'join' && !owner && !auth.offline && !paused && (
+        <JoinModal onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'create' && canCreate && (
+        <CreateModal initialSemester={selectedSemester} onClose={() => setDialog(null)} />
+      )}
     </>
   );
 }
@@ -120,7 +161,7 @@ function JoinModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal
       title="Join your class"
-      description="Ask your CR or GR for a current join code."
+      description="Ask your class admin for a current join code."
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -140,7 +181,7 @@ function JoinModal({ onClose }: { onClose: () => void }) {
             toast(
               result.membership.status === 'active'
                 ? 'You’re already a member of this class. Open it from My classes.'
-                : 'Join request sent. Your representative will review it.',
+                : 'Join request sent. Your class admin will review it.',
             );
             onClose();
           } catch (e) {
@@ -168,7 +209,7 @@ function JoinModal({ onClose }: { onClose: () => void }) {
         </label>
         <div className="info-box">
           <ShieldCheck size={20} />
-          <p>Your representative approves your membership before you can enter the class.</p>
+          <p>Your class admin approves your membership before you can enter the class.</p>
         </div>
         <ErrorNotice message={error} />
         <div className="modal-actions">
@@ -189,21 +230,41 @@ function JoinModal({ onClose }: { onClose: () => void }) {
     </Modal>
   );
 }
-function CreateModal({ onClose }: { onClose: () => void }) {
+function CreateModal({
+  onClose,
+  initialSemester,
+}: {
+  onClose: () => void;
+  initialSemester?: number;
+}) {
   const auth = useAuth();
+  const navigate = useNavigate();
+  const owner = isOwnerAccount(auth.me);
   const toast = useToast();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   return (
     <Modal
       title="Create a class space"
-      description="Your request goes to the Master Admin. If approved, you become the class representative."
+      description={
+        owner
+          ? 'Add a section to the university directory, then enroll students and appoint its class admins.'
+          : 'Create a class space and start organizing it immediately. You will be its class admin.'
+      }
       onClose={() => {
         if (!busy) onClose();
       }}
     >
       <ClassForm
-        submitLabel="Send request"
+        initial={
+          initialSemester &&
+          Number.isInteger(initialSemester) &&
+          initialSemester >= 1 &&
+          initialSemester <= 20
+            ? { name: '', program: '', semester: initialSemester, section: '', description: '' }
+            : undefined
+        }
+        submitLabel="Create class"
         busy={busy}
         error={error}
         onCancel={onClose}
@@ -211,13 +272,19 @@ function CreateModal({ onClose }: { onClose: () => void }) {
           setBusy(true);
           setError('');
           try {
-            await auth.request('/class-requests', {
+            const result = await auth.request<{ class: { id: string } }>('/classes', {
               method: 'POST',
               body: JSON.stringify({ ...fields, semester: Number(fields.semester) }),
             });
             await auth.refreshMe();
-            toast('Class request sent to the Master Admin.');
+            toast(
+              owner
+                ? 'Class created. Manage this section from the owner console.'
+                : 'Class created. Open it from My classes.',
+            );
+            contentChanged();
             onClose();
+            if (owner) navigate(`/admin/classes/${result.class.id}?view=people`);
           } catch (e) {
             setError(errorMessage(e));
           } finally {
@@ -232,11 +299,10 @@ function CreateModal({ onClose }: { onClose: () => void }) {
 export function Dashboard() {
   const auth = useAuth();
   const site = useSite();
-  const me = auth.me!;
+  const me = { ...auth.me!, classes: enrolledClasses(auth.me) };
+  const [classId, setClassId] = useState(me.classes[0]?.id ?? '');
+  const current = me.classes.find((c) => c.id === classId) ?? me.classes[0];
   const firstName = me.user.displayName.split(' ')[0];
-  const pending =
-    me.pendingMemberships.filter((item) => item.status === 'pending').length +
-    me.classRequests.filter((item) => item.status === 'pending').length;
   const date = new Intl.DateTimeFormat('en-PK', {
     weekday: 'long',
     month: 'short',
@@ -251,70 +317,121 @@ export function Dashboard() {
     }).format(new Date()),
   );
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const shortcuts = [
+    { to: '/timetable', label: 'Timetable', icon: CalendarDays, tone: 'blue' },
+    { to: '/deadlines', label: 'Deadlines', icon: CheckSquare2, tone: 'purple' },
+    { to: '/classes', label: 'My classes', icon: BookOpen, tone: 'teal' },
+    { to: '/offline', label: 'Offline', icon: WifiOff, tone: 'amber' },
+  ]
+    .filter((x) => x.to !== '/timetable' || site.settings?.features.timetable !== false)
+    .filter((x) => x.to !== '/deadlines' || site.settings?.features.deadlines !== false);
   return (
     <>
-      <ActionHeading
-        eyebrow={date}
-        title={`${greeting}, ${firstName}.`}
-        subtitle="Your class updates and course materials, within reach."
-      >
-        <WorkspaceActions />
-      </ActionHeading>
-      <section className="campus-digest" aria-label="Your workspace shortcuts">
-        <div className="digest-intro">
-          <span className="digest-compass" aria-hidden="true">
-            ✦
-          </span>
-          <div>
-            <span className="eyebrow">XVIA / CAMPUS DESK</span>
-            <h2>
-              A little less scrolling.
-              <br />A little more clarity.
-            </h2>
-          </div>
+      <div className="dashboard-greeting">
+        <div>
+          <p className="eyebrow">{date}</p>
+          <h1>
+            {greeting}, {firstName}
+            <span className="greeting-dot">.</span>
+          </h1>
+          <p>Built for Students. Designed for Success</p>
         </div>
-        <Link to="/classes" className="digest-item digest-blue">
-          <span>
-            <LayoutGrid size={20} />
-            <strong>{me.classes.length}</strong>
-          </span>
-          <div>
-            Class spaces
-            <ArrowUpRight size={17} />
+        <WorkspaceActions compact />
+      </div>
+      <div className="dashboard-top">
+        <div className="dashboard-main-card">
+          {me.classes.length > 1 && (
+            <label className="home-class-select">
+              Your space
+              <select
+                aria-label="Home class"
+                value={current?.id}
+                onChange={(e) => setClassId(e.target.value)}
+              >
+                {me.classes.map((c) => (
+                  <option value={c.id} key={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {current && site.settings?.features.timetable !== false ? (
+            <TodayCard classId={current.id} />
+          ) : (
+            <section className="today-card welcome-class-card">
+              <div className="today-card-top">
+                <span>YOUR CAMPUS, CONNECTED</span>
+                <BookOpen size={24} />
+              </div>
+              <div className="today-card-body">
+                <span className="today-time">Welcome to ZabSync</span>
+                <h2>
+                  A space for your class.
+                  <br />A clearer day for you.
+                </h2>
+                <p>
+                  Use your class admin’s join code to bring your subjects, updates, and timetable
+                  together.
+                </p>
+              </div>
+              <Link to="/classes" className="today-card-footer">
+                <span>Find your class space</span>
+                <ArrowRight size={18} />
+              </Link>
+            </section>
+          )}
+        </div>
+        <section className="quick-panel" aria-label="Quick actions">
+          <div className="section-heading">
+            <h2>Quick access</h2>
+            <span className="subtle-label">A tap away</span>
           </div>
-        </Link>
-        <Link to="/saved" className="digest-item digest-teal">
-          <span>
-            <Bookmark size={20} />
-          </span>
-          <div>
-            Saved for later
-            <ArrowUpRight size={17} />
+          <div className="quick-actions">
+            {shortcuts.map((s) => (
+              <Link
+                key={s.to}
+                to={
+                  current && (s.to === '/timetable' || s.to === '/deadlines')
+                    ? `${s.to}?class=${current.id}`
+                    : s.to
+                }
+                className="quick-action"
+              >
+                <span className={`quick-icon tone-${s.tone}`}>
+                  <s.icon size={26} />
+                </span>
+                <strong>{s.label}</strong>
+              </Link>
+            ))}
           </div>
-        </Link>
-        <Link to="/requests" className="digest-item digest-amber">
-          <span>
-            <ClipboardCheck size={20} />
-            <strong>{pending}</strong>
-          </span>
-          <div>
-            Pending requests
-            <ArrowUpRight size={17} />
-          </div>
-        </Link>
-      </section>
+          <a className="portal-strip" href={ZABDESK_URL} target="_blank" rel="noopener noreferrer">
+            <span>
+              <GraduationCap size={22} />
+              <span>
+                <strong>ZABDESK</strong>
+                <small>Results, registration & more</small>
+              </span>
+            </span>
+            <ArrowUpRight size={20} />
+          </a>
+        </section>
+      </div>
       <div className="campus-home-grid">
         <div className="home-feed">
           <AnnouncementBoard compact />
         </div>
         <aside className="campus-side-stack">
+          {current && site.settings?.features.deadlines !== false && (
+            <DeadlinesPanel classId={current.id} compact />
+          )}
           <section className="panel compact-classes">
             <div className="section-heading">
               <h2>
-                My classes <span className="count-pill">{me.classes.length}</span>
+                Your spaces <span className="count-pill">{me.classes.length}</span>
               </h2>
               <Link className="text-button" to="/classes">
-                All
+                View all
                 <ChevronRight size={15} />
               </Link>
             </div>
@@ -329,54 +446,15 @@ export function Dashboard() {
                   <div>
                     <strong>{item.name}</strong>
                     <small>
-                      {item.program} · Sem {item.semester}
+                      {item.program} · Semester {item.semester}
+                      {item.role === 'admin' ? ' · Class Admin' : ''}
                     </small>
                   </div>
                   <ChevronRight size={17} />
                 </Link>
               ))
             ) : (
-              <EmptyState icon={<BookOpen size={25} />} title="Your class belongs here.">
-                Ask your CR for a join code, or request a class space.
-              </EmptyState>
-            )}
-          </section>
-          <section className="panel campus-links">
-            <div className="section-heading">
-              <h2>Campus shortcuts</h2>
-              <ArrowUpRight size={18} />
-            </div>
-            <a href={ZABDESK_URL} target="_blank" rel="noopener noreferrer">
-              <span className="shortcut-icon tone-blue">
-                <GraduationCap size={22} />
-              </span>
-              <span>
-                <strong>ZABDESK portal</strong>
-                <small>Results, registration & more</small>
-              </span>
-              <ExternalLink size={16} />
-            </a>
-            <a href={auth.config?.universityUrl} target="_blank" rel="noopener noreferrer">
-              <span className="shortcut-icon tone-teal">
-                <Globe2 size={21} />
-              </span>
-              <span>
-                <strong>University website</strong>
-                <small>SZABIST Islamabad</small>
-              </span>
-              <ExternalLink size={16} />
-            </a>
-            {site.settings?.features.tutor !== false && (
-              <Link to="/tutor">
-                <span className="shortcut-icon tone-purple">
-                  <Users size={21} />
-                </span>
-                <span>
-                  <strong>Meet your tutor</strong>
-                  <small>Support beyond the lecture</small>
-                </span>
-                <ChevronRight size={16} />
-              </Link>
+              <p className="muted">Your approved class will appear here.</p>
             )}
           </section>
           <Link className="install-note" to="/install">
@@ -385,9 +463,10 @@ export function Dashboard() {
             </span>
             <div>
               <strong>Your campus, one tap away.</strong>
-              <p>Add XVIA to your home screen.</p>
+              <p>Add ZabSync to your home screen.</p>
               <span>
-                How to install <ArrowRight size={15} />
+                Get the app
+                <ArrowRight size={15} />
               </span>
             </div>
           </Link>
@@ -401,7 +480,7 @@ export function ClassesPage() {
   const auth = useAuth();
   const [query, setQuery] = useState('');
   const toast = useToast();
-  const classes = auth.me!.classes.filter((item) =>
+  const classes = enrolledClasses(auth.me).filter((item) =>
     `${item.name} ${item.program} ${item.section}`.toLowerCase().includes(query.toLowerCase()),
   );
   return (
@@ -455,7 +534,7 @@ export function ClassesPage() {
           >
             {query
               ? 'Try a different name or clear your search.'
-              : 'Get a join code from your representative, or create a request for a new class space.'}
+              : 'Get a join code from your class admin to enter your class space.'}
           </EmptyState>
         </div>
       )}
@@ -469,124 +548,79 @@ export function ClassesPage() {
 
 export function RequestsPage() {
   const auth = useAuth();
-  const toast = useToast();
-  const me = auth.me!;
+  const requests = auth.me!.pendingMemberships;
   return (
     <>
       <ActionHeading
-        eyebrow="KEEP TRACK"
-        title="My requests"
-        subtitle="Follow your class and membership requests."
-      >
-        <button
-          className="button button-secondary"
-          onClick={() =>
-            void auth
-              .refreshMe()
-              .then(() => toast('Requests refreshed.'))
-              .catch((e) => toast(errorMessage(e)))
-          }
-        >
-          <RefreshCw size={16} />
-          Refresh
-        </button>
-      </ActionHeading>
-      <div className="requests-grid">
-        <section className="panel">
-          <div className="section-heading">
-            <h2>Class space requests</h2>
-            <span className="count-pill">{me.classRequests.length}</span>
+        eyebrow="YOUR MEMBERSHIPS"
+        title="Join requests"
+        subtitle="See the status of your requests to join a class."
+      />
+      <section className="panel">
+        {requests.length ? (
+          <div className="request-list">
+            {requests.map((item) => (
+              <article className="request-row" key={item.id}>
+                <span className="request-icon">
+                  <KeyRound size={22} />
+                </span>
+                <div>
+                  <h3>{item.className}</h3>
+                  <p>
+                    {item.status === 'pending'
+                      ? 'Your class admin will review this request.'
+                      : item.status === 'approved'
+                        ? 'Your membership has been approved.'
+                        : item.status === 'removed'
+                          ? 'You are no longer enrolled in this class.'
+                          : 'This request was not approved.'}
+                  </p>
+                </div>
+                <StatusBadge status={item.status} />
+              </article>
+            ))}
           </div>
-          {me.classRequests.length ? (
-            <div className="request-list">
-              {me.classRequests.map((item) => (
-                <article key={item.id} className="request-item">
-                  <div className="request-title">
-                    <span className="request-icon">
-                      <LayoutGrid size={20} />
-                    </span>
-                    <div>
-                      <h3>{item.name}</h3>
-                      <p>
-                        {item.program} · Semester {item.semester}
-                      </p>
-                    </div>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <p className="request-meta">Requested {formatDate(item.createdAt)}</p>
-                  {item.reviewNote && (
-                    <div className="review-note">
-                      <strong>Admin note</strong>
-                      <p>{item.reviewNote}</p>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={<ClipboardList size={27} />} title="No class requests yet.">
-              If you represent your class, request a space from My classes.
-            </EmptyState>
-          )}
-        </section>
-        <section className="panel">
-          <div className="section-heading">
-            <h2>Membership requests</h2>
-            <span className="count-pill">{me.pendingMemberships.length}</span>
-          </div>
-          {me.pendingMemberships.length ? (
-            <div className="request-list">
-              {me.pendingMemberships.map((item) => (
-                <article key={item.id} className="request-item">
-                  <div className="request-title">
-                    <span className="request-icon">
-                      <UserPlus size={20} />
-                    </span>
-                    <div>
-                      <h3>{item.className}</h3>
-                      <p>
-                        {item.status === 'pending'
-                          ? 'Waiting for a CR or GR to review'
-                          : item.status === 'approved'
-                            ? 'You can now open this class'
-                            : item.status === 'removed'
-                              ? 'Your membership in this class has ended'
-                              : 'Contact your representative for help'}
-                      </p>
-                    </div>
-                    <StatusBadge status={item.status} />
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={<ClipboardCheck size={27} />} title="You’re all caught up.">
-              Your join requests and their latest decisions will appear here.
-            </EmptyState>
-          )}
-        </section>
-      </div>
-      <div className="info-box wide-info">
-        <ShieldCheck size={21} />
-        <p>
-          A join code starts a membership request. It does not grant editing access. The Master
-          Admin appoints class representatives.
-        </p>
-      </div>
+        ) : (
+          <EmptyState
+            title="No join requests yet."
+            action={
+              <Link className="button button-primary" to="/classes">
+                My classes
+              </Link>
+            }
+          >
+            Use a current class code to request membership.
+          </EmptyState>
+        )}
+      </section>
     </>
   );
 }
 
-export function ClassPage() {
+export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean }) {
+  const site = useSite();
   const { classId = '' } = useParams();
+  const [searchParams] = useSearchParams();
   const auth = useAuth();
+  const owner = isOwnerAccount(auth.me);
+  const canView = ownerWorkspace
+    ? owner && !auth.offline
+    : !owner && enrolledClasses(auth.me).some((entry) => entry.id === classId);
   const toast = useToast();
   const [offset, setOffset] = useState(0);
   const { data, error, loading, reload } = useResource<ClassDetail>(
-    `/classes/${encodeURIComponent(classId)}?limit=50&offset=${offset}`,
+    canView ? `/classes/${encodeURIComponent(classId)}?limit=50&offset=${offset}` : null,
   );
   const [tab, setTab] = useState<
-    'announcements' | 'subjects' | 'resources' | 'people' | 'requests' | 'settings' | 'trash'
+    | 'announcements'
+    | 'subjects'
+    | 'resources'
+    | 'people'
+    | 'requests'
+    | 'settings'
+    | 'trash'
+    | 'timetable'
+    | 'deadlines'
   >('announcements');
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
@@ -596,31 +630,69 @@ export function ClassPage() {
   const [invite, setInvite] = useState<{ code: string; expiresAt: string } | null>(null);
   const [removeUser, setRemoveUser] = useState<ClassDetail['members'][number] | null>(null);
   const [representative, setRepresentative] = useState<ClassDetail['members'][number] | null>(null);
-  const [newRole, setNewRole] = useState<'cr' | 'gr' | 'student'>('cr');
+  const [newRole, setNewRole] = useState<'admin' | 'student'>('admin');
   useEffect(() => {
     setInvite(null);
     setRotate(false);
     setEdit(false);
     setRemoveUser(null);
     setRepresentative(null);
-    setTab('announcements');
+    setTab(searchParams.get('view') === 'people' && !auth.offline ? 'people' : 'announcements');
     setActionError('');
     setQuery('');
     setOffset(0);
-  }, [classId, auth.me?.user.id]);
+  }, [classId, auth.me?.user.id, searchParams, auth.offline]);
+  const enabledViews = (
+    ['announcements', 'subjects', 'resources', 'timetable', 'deadlines'] as const
+  ).filter((view) => site.settings?.features[view] !== false);
+  const visibility = enabledViews.join(',');
+  useEffect(() => {
+    if (
+      (['announcements', 'subjects', 'resources', 'timetable', 'deadlines'] as string[]).includes(
+        tab,
+      ) &&
+      !visibility.split(',').includes(tab)
+    )
+      setTab(enabledViews[0] ?? 'settings');
+  }, [tab, visibility]);
+  if (!canView)
+    return (
+      <EmptyState
+        icon={<ShieldCheck size={28} />}
+        title={
+          ownerWorkspace
+            ? 'Owner section tools need an online owner account.'
+            : 'This class is not in your enrolled classes.'
+        }
+        action={
+          <Link className="button button-secondary" to={owner ? '/admin' : '/classes'}>
+            {owner ? 'Owner dashboard' : 'My classes'}
+          </Link>
+        }
+      >
+        {ownerWorkspace
+          ? 'Reconnect to manage this section.'
+          : 'Request membership with a current class code, then wait for approval.'}
+      </EmptyState>
+    );
   if (loading) return <Spinner label="Opening your class…" />;
   if (error || !data)
     return (
       <>
-        <Link className="back-link" to="/classes">
+        <Link className="back-link" to={ownerWorkspace ? '/admin' : '/classes'}>
           <ArrowLeft size={16} />
-          My classes
+          {ownerWorkspace ? 'Owner dashboard' : 'My classes'}
         </Link>
         <ErrorNotice message={error || 'Class not found.'} retry={reload} />
       </>
     );
-  const canManage = data.myRole !== 'student';
-  const isMaster = data.myRole === 'master';
+  const canManage =
+    canManageAcademic(auth.me, classId, {
+      offline: auth.offline,
+      maintenance: site.settings?.maintenance.enabled === true,
+      ownerContext: ownerWorkspace,
+    }) && (ownerWorkspace ? data.myRole === 'master' : data.myRole === 'admin');
+  const isMaster = owner && ownerWorkspace && data.myRole === 'master' && !auth.offline;
   const members = data.members.filter((member) =>
     `${member.displayName} ${member.email ?? ''}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -631,12 +703,17 @@ export function ClassPage() {
     body: unknown,
     success: string,
   ) => {
+    if (!canManage) {
+      setActionError('Only an authorized class admin can make this change.');
+      return false;
+    }
     setBusy(id);
     setActionError('');
     try {
       await auth.request(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
       await auth.refreshMe();
       reload();
+      contentChanged();
       toast(success);
       return true;
     } catch (e) {
@@ -648,10 +725,20 @@ export function ClassPage() {
   };
   return (
     <>
-      <Link className="back-link" to="/classes">
-        <ArrowLeft size={16} />
-        My classes
-      </Link>
+      {ownerWorkspace ? (
+        <nav className="owner-breadcrumb" aria-label="Owner section breadcrumb">
+          <Link to="/admin">Owner dashboard</Link>
+          <ChevronRight size={15} />
+          <Link to={`/admin?semester=${data.class.semester}`}>Semester {data.class.semester}</Link>
+          <ChevronRight size={15} />
+          <span>Section {data.class.section}</span>
+        </nav>
+      ) : (
+        <Link className="back-link" to="/classes">
+          <ArrowLeft size={16} />
+          My classes
+        </Link>
+      )}
       <section className="class-banner">
         <div className="class-banner-icon">{data.class.name.slice(0, 3)}</div>
         <div className="class-banner-copy">
@@ -683,32 +770,73 @@ export function ClassPage() {
         )}
       </section>
       <div className="class-tabs" role="group" aria-label="Class sections">
-        <button
-          className={tab === 'announcements' ? 'active' : ''}
-          onClick={() => setTab('announcements')}
-        >
-          <Megaphone size={17} />
-          Announcements
-        </button>
-        <button className={tab === 'subjects' ? 'active' : ''} onClick={() => setTab('subjects')}>
-          <BookOpen size={17} />
-          Subjects
-        </button>
-        <button className={tab === 'resources' ? 'active' : ''} onClick={() => setTab('resources')}>
-          <FolderOpen size={17} />
-          Resources
-        </button>
-        <button
-          className={tab === 'people' ? 'active' : ''}
-          onClick={() => {
-            setTab('people');
-            setOffset(0);
-            setQuery('');
-          }}
-        >
-          <Users size={17} />
-          People <span>{data.class.memberCount}</span>
-        </button>
+        {site.settings?.features.announcements !== false && (
+          <button
+            className={tab === 'announcements' ? 'active' : ''}
+            onClick={() => setTab('announcements')}
+          >
+            <Megaphone size={17} />
+            Announcements
+          </button>
+        )}
+        {site.settings?.features.subjects !== false && (
+          <button className={tab === 'subjects' ? 'active' : ''} onClick={() => setTab('subjects')}>
+            <BookOpen size={17} />
+            Subjects
+          </button>
+        )}
+        {site.settings?.features.resources !== false && (
+          <button
+            className={tab === 'resources' ? 'active' : ''}
+            onClick={() => setTab('resources')}
+          >
+            <FolderOpen size={17} />
+            Resources
+          </button>
+        )}
+        {site.settings?.features.timetable !== false &&
+          (ownerWorkspace ? (
+            <Link to={`/admin/classes/${classId}/timetable`} className="owner-class-tab">
+              <CalendarDays size={17} />
+              Timetable
+            </Link>
+          ) : (
+            <button
+              className={tab === 'timetable' ? 'active' : ''}
+              onClick={() => setTab('timetable')}
+            >
+              <CalendarDays size={17} />
+              Timetable
+            </button>
+          ))}
+        {site.settings?.features.deadlines !== false &&
+          (ownerWorkspace ? (
+            <Link to={`/admin/classes/${classId}/deadlines`} className="owner-class-tab">
+              <CheckSquare2 size={17} />
+              Deadlines
+            </Link>
+          ) : (
+            <button
+              className={tab === 'deadlines' ? 'active' : ''}
+              onClick={() => setTab('deadlines')}
+            >
+              <CheckSquare2 size={17} />
+              Deadlines
+            </button>
+          ))}
+        {!auth.offline && (
+          <button
+            className={tab === 'people' ? 'active' : ''}
+            onClick={() => {
+              setTab('people');
+              setOffset(0);
+              setQuery('');
+            }}
+          >
+            <Users size={17} />
+            People <span>{data.class.memberCount}</span>
+          </button>
+        )}
         {canManage && (
           <button
             className={tab === 'requests' ? 'active' : ''}
@@ -751,7 +879,18 @@ export function ClassPage() {
             tab={tab as 'announcements' | 'subjects' | 'resources' | 'trash'}
           />
         )}
-      {tab === 'people' && (
+      {tab === 'timetable' && <TimetablePanel classId={classId} compact />}
+      {tab === 'deadlines' && <DeadlinesPanel classId={classId} />}
+      {tab === 'people' && isMaster && (
+        <AddEnrolledStudent
+          classId={classId}
+          onChanged={() => {
+            reload();
+            void auth.refreshMe();
+          }}
+        />
+      )}
+      {tab === 'people' && !auth.offline && (
         <section className="panel people-panel">
           <div className="section-heading">
             <div>
@@ -778,7 +917,11 @@ export function ClassPage() {
                   name={member.displayName}
                   userId={member.userId}
                   avatarVersion={
-                    'avatarVersion' in member ? (member.avatarVersion as string | null) : null
+                    site.settings?.features.profilePhotos === false
+                      ? null
+                      : 'avatarVersion' in member
+                        ? (member.avatarVersion as string | null)
+                        : null
                   }
                 />
                 <div className="person-info">
@@ -787,18 +930,26 @@ export function ClassPage() {
                     {member.userId === auth.me!.user.id && <span className="you-label">You</span>}
                   </strong>
                   {member.email && <span>{member.email}</span>}
+                  {isMaster && (
+                    <>
+                      <span>Roll number: {member.rollNumber || 'Not available'}</span>
+                      <span className="account-id">ID: {member.userId}</span>
+                    </>
+                  )}
                 </div>
-                <RoleBadge role={member.role} />
+                <RoleBadge
+                  role={owner && member.userId === auth.me?.user.id ? 'master' : member.role}
+                />
                 {canManage && member.userId !== auth.me!.user.id && (
                   <div className="person-actions">
                     {isMaster && (
                       <button
                         className="icon-button"
-                        title="Change representative role"
+                        title="Change class admin role"
                         aria-label={`Change role for ${member.displayName}`}
                         onClick={() => {
                           setRepresentative(member);
-                          setNewRole(member.role === 'student' ? 'cr' : member.role);
+                          setNewRole(member.role === 'student' ? 'admin' : member.role);
                           setActionError('');
                         }}
                       >
@@ -829,7 +980,7 @@ export function ClassPage() {
           {!canManage && (
             <p className="panel-note">
               <ShieldCheck size={16} />
-              Your CR and GR look after this class.
+              Your class admins look after this class.
             </p>
           )}
         </section>
@@ -853,7 +1004,11 @@ export function ClassPage() {
                     name={member.displayName}
                     userId={member.userId}
                     avatarVersion={
-                      'avatarVersion' in member ? (member.avatarVersion as string | null) : null
+                      site.settings?.features.profilePhotos === false
+                        ? null
+                        : 'avatarVersion' in member
+                          ? (member.avatarVersion as string | null)
+                          : null
                     }
                   />
                   <div className="person-info">
@@ -976,7 +1131,7 @@ export function ClassPage() {
           </section>
         </div>
       )}
-      {tab !== 'settings' && (
+      {(tab === 'people' || tab === 'requests') && !auth.offline && (
         <Pagination
           offset={offset}
           limit={50}
@@ -989,7 +1144,7 @@ export function ClassPage() {
           }}
         />
       )}
-      {edit && (
+      {edit && canManage && (
         <Modal
           title="Edit class details"
           description="Keep your class name and information up to date."
@@ -1018,7 +1173,7 @@ export function ClassPage() {
           />
         </Modal>
       )}
-      {rotate && (
+      {rotate && canManage && (
         <Modal
           title={invite ? 'Your class join code' : 'Invite your classmates'}
           description={
@@ -1101,7 +1256,7 @@ export function ClassPage() {
           )}
         </Modal>
       )}
-      {removeUser && (
+      {removeUser && canManage && (
         <Modal
           title="Remove class member?"
           description={`${removeUser.displayName} will lose access to this class. They can request to join again with a valid code.`}
@@ -1140,7 +1295,7 @@ export function ClassPage() {
           </div>
         </Modal>
       )}
-      {representative && (
+      {representative && isMaster && (
         <Modal
           title="Assign a class role"
           description={`Update ${representative.displayName}’s role in ${data.class.name}.`}
@@ -1155,9 +1310,9 @@ export function ClassPage() {
               if (
                 await perform(
                   'role',
-                  `/admin/classes/${classId}/representatives`,
-                  'POST',
-                  { userId: representative.userId, role: newRole },
+                  `/admin/classes/${classId}/members/${representative.userId}/role`,
+                  'PATCH',
+                  { role: newRole },
                   'Class role updated.',
                 )
               )
@@ -1170,16 +1325,15 @@ export function ClassPage() {
                 value={newRole}
                 onChange={(e) => setNewRole(e.target.value as typeof newRole)}
               >
-                <option value="cr">Class representative (CR)</option>
-                <option value="gr">Group representative (GR)</option>
+                <option value="admin">Class Admin</option>
                 <option value="student">Student</option>
               </select>
             </label>
             <div className="info-box">
               <ShieldCheck size={20} />
               <p>
-                Assigning a new CR or GR returns the previous representative in that role to
-                Student. Every class must keep a CR.
+                Class Admins manage this class’s subjects, announcements, timetable, and membership
+                requests. Only you can assign or remove this role.
               </p>
             </div>
             <ErrorNotice message={actionError} />
@@ -1204,432 +1358,182 @@ export function ClassPage() {
 }
 
 export function AdminPage() {
+  const site = useSite();
   const auth = useAuth();
-  const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  type AdminTab =
+    'semesters' | 'users' | 'announcements' | 'settings' | 'developer' | 'activity' | 'trash';
+  const rawTab = params.get('tab');
+  const tab: AdminTab = [
+    'users',
+    'announcements',
+    'settings',
+    'developer',
+    'activity',
+    'trash',
+  ].includes(rawTab ?? '')
+    ? (rawTab as AdminTab)
+    : 'semesters';
   const [offset, setOffset] = useState(0);
-  const { data, loading, error, reload } = useResource<AdminOverview>(
-    `/admin/overview?limit=50&offset=${offset}`,
-  );
-  const [tab, setTab] = useState<
-    'requests' | 'classes' | 'users' | 'activity' | 'announcements' | 'settings' | 'trash'
-  >('requests');
-  const [review, setReview] = useState<AdminOverview['requests'][number] | null>(null);
-  const [decision, setDecision] = useState<'approve' | 'reject'>('approve');
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState('');
   const [query, setQuery] = useState('');
-  if (loading) return <Spinner label="Opening administration…" />;
-  if (error || !data)
-    return <ErrorNotice message={error || 'Admin overview is unavailable.'} retry={reload} />;
-  const pending = data.requests.filter((request) => request.status === 'pending');
+  const state = useResource<AdminOverview>(
+    isOwnerAccount(auth.me) && !auth.offline ? `/admin/overview?limit=50&offset=${offset}` : null,
+  );
+  if (!isOwnerAccount(auth.me)) return <Navigate to="/" replace />;
+  if (auth.offline)
+    return (
+      <EmptyState icon={<WifiOff size={28} />} title="Master Admin needs a connection.">
+        Reconnect to view student information and manage access.
+      </EmptyState>
+    );
+  if (state.loading) return <Spinner label="Opening Master Admin…" />;
+  if (state.error || !state.data)
+    return (
+      <ErrorNotice message={state.error || 'Administration is unavailable.'} retry={state.reload} />
+    );
+  const data = state.data;
+  const tabs = [
+    { id: 'semesters', label: 'Semesters & sections', icon: LayoutGrid },
+    { id: 'users', label: 'All students', icon: Users },
+    { id: 'announcements', label: 'Global notices', icon: Megaphone },
+    { id: 'settings', label: 'App controls', icon: Settings2 },
+    { id: 'developer', label: 'Developer', icon: Code2 },
+    { id: 'activity', label: 'Activity', icon: Clock3 },
+    { id: 'trash', label: 'Recycle bin', icon: Trash2 },
+  ] as const;
   return (
     <>
       <ActionHeading
-        eyebrow="MASTER ADMINISTRATION"
-        title="Master control room"
-        subtitle="Manage class spaces, announcements, people, and app settings."
+        eyebrow="MASTER ADMIN"
+        title="Your campus. Your control."
+        subtitle="Open a semester, choose a section, and manage its students and class admins."
       >
-        <button className="button button-secondary" onClick={reload}>
-          <RefreshCw size={16} />
-          Refresh
-        </button>
+        {tab === 'semesters' && <WorkspaceActions compact />}
       </ActionHeading>
-      <div className="admin-intro">
-        <span className="admin-intro-icon">
-          <ShieldCheck size={25} />
-        </span>
+      <div className="master-summary">
         <div>
-          <strong>You’re the Master Admin.</strong>
-          <p>
-            Your campus controls, in one dashboard. Open a class to manage its subjects and
-            resources.
-          </p>
+          <Users size={23} />
+          <strong>{data.stats.users}</strong>
+          <span>Registered accounts</span>
         </div>
-        <RoleBadge role="master" />
-      </div>
-      <div className="stats-grid">
-        <div className="stat-card">
-          <span className="stat-icon blue">
-            <Users size={21} />
-          </span>
-          <div>
-            <strong>{data.stats.users}</strong>
-            <span>University members</span>
-          </div>
+        <div>
+          <LayoutGrid size={23} />
+          <strong>{data.stats.classes}</strong>
+          <span>Class spaces</span>
         </div>
-        <div className="stat-card">
-          <span className="stat-icon green">
-            <LayoutGrid size={21} />
-          </span>
-          <div>
-            <strong>{data.stats.classes}</strong>
-            <span>Class spaces</span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-icon amber">
-            <ClipboardCheck size={21} />
-          </span>
-          <div>
-            <strong>{data.stats.pendingRequests}</strong>
-            <span>Awaiting your review</span>
-          </div>
+        <div>
+          <ShieldCheck size={23} />
+          <strong>Owner</strong>
+          <span>Global permissions</span>
         </div>
       </div>
       <div className="class-tabs admin-tabs" role="group" aria-label="Administration sections">
-        {(
-          [
-            'requests',
-            'classes',
-            'users',
-            'announcements',
-            'settings',
-            'activity',
-            'trash',
-          ] as const
-        ).map((value) => (
+        {tabs.map((t) => (
           <button
-            className={tab === value ? 'active' : ''}
-            key={value}
+            key={t.id}
+            className={tab === t.id ? 'active' : ''}
             onClick={() => {
-              setTab(value);
-              setQuery('');
+              setParams((previous) => {
+                const next = new URLSearchParams(previous);
+                next.set('tab', t.id);
+                return next;
+              });
               setOffset(0);
+              setQuery('');
             }}
           >
-            {value === 'requests' ? (
-              <ClipboardCheck size={17} />
-            ) : value === 'classes' ? (
-              <LayoutGrid size={17} />
-            ) : value === 'users' ? (
-              <Users size={17} />
-            ) : value === 'announcements' ? (
-              <Megaphone size={17} />
-            ) : value === 'settings' ? (
-              <Settings2 size={17} />
-            ) : value === 'trash' ? (
-              <Trash2 size={17} />
-            ) : (
-              <Clock3 size={17} />
-            )}
-            {value === 'requests'
-              ? 'Class requests'
-              : value === 'classes'
-                ? 'All classes'
-                : value === 'users'
-                  ? 'Members'
-                  : value === 'announcements'
-                    ? 'Global notices'
-                    : value === 'settings'
-                      ? 'Settings & Tutor'
-                      : value === 'trash'
-                        ? 'Recycle bin'
-                        : 'Activity'}
-            {value === 'requests' && <span>{pending.length}</span>}
+            <t.icon size={17} />
+            {t.label}
           </button>
         ))}
       </div>
-      {tab === 'requests' && (
-        <section className="panel">
-          <div className="section-heading">
-            <h2>Class requests to review</h2>
-            <span className="count-pill">{pending.length}</span>
-          </div>
-          {pending.length ? (
-            <div className="admin-request-grid">
-              {pending.map((item) => (
-                <article className="admin-request-card" key={item.id}>
-                  <div className="request-title">
-                    <span className="request-icon">
-                      <BookOpen size={22} />
-                    </span>
-                    <div>
-                      <h3>{item.name}</h3>
-                      <p>{item.program}</p>
-                    </div>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <div className="admin-request-meta">
-                    <span>
-                      Semester {item.semester} · Section {item.section}
-                    </span>
-                    <span>{formatDate(item.createdAt)}</span>
-                  </div>
-                  {item.description && (
-                    <p className="admin-request-description">{item.description}</p>
-                  )}
-                  <div className="requester">
-                    <Avatar name={item.requester.displayName} size="small" />
-                    <div>
-                      <strong>{item.requester.displayName}</strong>
-                      <small>{item.requester.email}</small>
-                    </div>
-                  </div>
-                  <button
-                    className="button button-primary button-full"
-                    onClick={() => {
-                      setReview(item);
-                      setDecision('approve');
-                      setNote('');
-                      setActionError('');
-                    }}
-                  >
-                    Review request
-                    <ArrowRight size={17} />
-                  </button>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={<CheckCircle2 size={29} />} title="All caught up.">
-              There are no new class requests to review.
-            </EmptyState>
-          )}
-          {data.requests.some((item) => item.status !== 'pending') && (
-            <div className="past-requests">
-              <h3>Recently reviewed</h3>
-              {data.requests
-                .filter((item) => item.status !== 'pending')
-                .map((item) => (
-                  <div className="account-class-row" key={item.id}>
-                    <span>
-                      <strong>{item.name}</strong>
-                      <small>{item.requester.displayName}</small>
-                    </span>
-                    <StatusBadge status={item.status} />
-                  </div>
-                ))}
-            </div>
-          )}
-        </section>
-      )}
-      {tab === 'classes' && (
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <h2>All class spaces</h2>
-              <p>Open a class to review membership and appoint its CR or GR.</p>
-            </div>
-          </div>
-          <label className="search-field member-search">
-            <Search size={18} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Filter classes on this page"
-              placeholder="Filter this page by class name or ID"
-            />
-          </label>
-          <div className="admin-classes">
-            {data.classes
-              .filter((item) =>
-                `${item.name} ${item.id} ${item.program}`
-                  .toLowerCase()
-                  .includes(query.toLowerCase()),
-              )
-              .map((item) => (
-                <Link className="admin-class-row" to={`/classes/${item.id}`} key={item.id}>
-                  <span className="class-glyph small">{item.section}</span>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <span>
-                      {item.program} · Semester {item.semester}
-                    </span>
-                    <code>{item.id}</code>
-                  </div>
-                  <span className="admin-member-count">
-                    <Users size={15} />
-                    {item.memberCount}
-                  </span>
-                  <ChevronRight size={18} />
-                </Link>
-              ))}
-          </div>
-          {!data.classes.length && (
-            <EmptyState title="The first class starts here.">
-              Approve a class request to create its workspace.
-            </EmptyState>
-          )}
-        </section>
-      )}
+      {tab === 'semesters' && <SemesterDirectory />}
       {tab === 'users' && (
         <section className="panel">
           <div className="section-heading">
-            <div>
-              <h2>University members</h2>
-              <p>Accounts that have accessed XVIA.</p>
-            </div>
+            <h2>Registered accounts</h2>
+            <button className="icon-button" aria-label="Refresh accounts" onClick={state.reload}>
+              <RefreshCw size={18} />
+            </button>
           </div>
-          <label className="search-field member-search">
+          <label className="search-field">
             <Search size={18} />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              aria-label="Filter members on this page"
-              placeholder="Filter this page by name or email"
+              placeholder="Filter this page by name, email, or ID"
+              aria-label="Filter registered accounts"
             />
           </label>
           <div className="people-list">
             {data.users
-              .filter((user) =>
-                `${user.displayName} ${user.email}`.toLowerCase().includes(query.toLowerCase()),
+              .filter((u) =>
+                `${u.displayName} ${u.email} ${u.id}`.toLowerCase().includes(query.toLowerCase()),
               )
-              .map((user) => (
-                <div className="person-row" key={user.id}>
+              .map((u) => (
+                <div className="person-row" key={u.id}>
                   <Avatar
-                    name={user.displayName}
-                    userId={user.id}
-                    avatarVersion={user.avatarVersion}
+                    name={u.displayName}
+                    userId={u.id}
+                    avatarVersion={
+                      site.settings?.features.profilePhotos === false ? null : u.avatarVersion
+                    }
                   />
                   <div className="person-info">
-                    <strong>{user.displayName}</strong>
-                    <span>{user.email}</span>
+                    <strong>{u.displayName}</strong>
+                    <span>{u.email}</span>
+                    <span className="account-id">ID: {u.id}</span>
                   </div>
-                  <RoleBadge role={user.role === 'master' ? 'master' : user.status} />
-                  <UserStatusControl user={user} onChanged={reload} />
+                  {u.role === 'master' && <RoleBadge role="master" />}
+                  <UserStatusControl user={u} onChanged={state.reload} />
                 </div>
               ))}
           </div>
+          <Pagination
+            limit={50}
+            offset={offset}
+            total={data.pagination.usersTotal}
+            onChange={setOffset}
+          />
+          <p className="page-hint">
+            To assign a Class Admin, open Semesters & sections, then open the class’s People tab.
+          </p>
         </section>
       )}
       {tab === 'announcements' && <AnnouncementBoard globalOnly allowCreate />}
       {tab === 'settings' && <AdminSettingsPanel />}
-      {tab === 'trash' && <TrashPanel />}
+      {tab === 'developer' && <AdminDeveloperPanel />}
       {tab === 'activity' && (
         <section className="panel">
           <div className="section-heading">
-            <h2>Recent administrative activity</h2>
-            <Clock3 size={19} />
+            <h2>Recent activity</h2>
+            <button className="icon-button" onClick={state.reload} aria-label="Refresh activity">
+              <RefreshCw size={18} />
+            </button>
           </div>
-          {data.audit.length ? (
-            <div className="activity-list">
-              {data.audit.map((item) => (
-                <div className="activity-row" key={item.id}>
-                  <span className="activity-dot" />
-                  <div>
-                    <strong>{item.action.replace(/[._-]/g, ' ')}</strong>
-                    <p>{item.actorEmail || 'System'}</p>
-                    <code>{item.targetId}</code>
-                  </div>
-                  <time>{formatDate(item.createdAt, true)}</time>
+          <div className="audit-list">
+            {data.audit.map((a) => (
+              <div className="audit-row" key={a.id}>
+                <span className="audit-dot" />
+                <div>
+                  <strong>{a.action.replaceAll('.', ' · ').replaceAll('_', ' ')}</strong>
+                  <span>
+                    {a.actorEmail || 'System'} · {formatDate(a.createdAt, true)}
+                  </span>
+                  <small className="account-id">{a.targetId}</small>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={<Clock3 size={27} />} title="A fresh start.">
-              Class and membership administration will appear here as it happens.
-            </EmptyState>
-          )}
+              </div>
+            ))}
+          </div>
+          <Pagination
+            limit={50}
+            offset={offset}
+            total={data.pagination.auditTotal}
+            onChange={setOffset}
+          />
         </section>
       )}
-      {['requests', 'classes', 'users', 'activity'].includes(tab) && (
-        <Pagination
-          offset={offset}
-          limit={50}
-          total={
-            tab === 'requests'
-              ? data.pagination.requestsTotal
-              : tab === 'classes'
-                ? data.pagination.classesTotal
-                : tab === 'users'
-                  ? data.pagination.usersTotal
-                  : data.pagination.auditTotal
-          }
-          onChange={(next) => {
-            setOffset(next);
-            setQuery('');
-          }}
-        />
-      )}
-      {review && (
-        <Modal
-          title={`Review ${review.name}`}
-          description="Confirm the class and the representative before approving."
-          onClose={() => {
-            if (!busy) setReview(null);
-          }}
-        >
-          <form
-            className="form-stack"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              setBusy(true);
-              setActionError('');
-              try {
-                await auth.request(`/admin/class-requests/${review.id}/decision`, {
-                  method: 'POST',
-                  body: JSON.stringify({ decision, note }),
-                });
-                await auth.refreshMe();
-                setReview(null);
-                reload();
-                toast(
-                  decision === 'approve'
-                    ? 'Class approved. Its requester is now the CR.'
-                    : 'Class request declined.',
-                );
-              } catch (e) {
-                setActionError(errorMessage(e));
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <div className="review-summary">
-              <strong>{review.requester.displayName}</strong>
-              <span>{review.requester.email}</span>
-              <p>
-                {review.program} · Semester {review.semester} · Section {review.section}
-              </p>
-            </div>
-            <label>
-              Decision
-              <select
-                value={decision}
-                onChange={(e) => setDecision(e.target.value as typeof decision)}
-              >
-                <option value="approve">Approve class and appoint requester as CR</option>
-                <option value="reject">Decline class request</option>
-              </select>
-            </label>
-            <label>
-              Note to requester <span className="optional">Optional</span>
-              <textarea
-                rows={3}
-                maxLength={500}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Add any context they should know"
-              />
-            </label>
-            <ErrorNotice message={actionError} />
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="button button-secondary"
-                disabled={busy}
-                onClick={() => setReview(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className={`button ${decision === 'approve' ? 'button-primary' : 'button-danger'}`}
-                disabled={busy}
-              >
-                {busy ? (
-                  <LoaderCircle size={17} className="spin" />
-                ) : decision === 'approve' ? (
-                  <Check size={17} />
-                ) : (
-                  <X size={17} />
-                )}
-                {decision === 'approve' ? 'Approve class' : 'Decline request'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
+      {tab === 'trash' && <TrashPanel globalOnly />}
     </>
   );
 }

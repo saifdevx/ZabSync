@@ -1,7 +1,15 @@
-import { createContext, useContext, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useApi } from './hooks';
+import { ErrorNotice, Spinner } from './components';
 
-export type Feature = 'subjects' | 'resources' | 'announcements' | 'tutor' | 'profilePhotos';
+export type Feature =
+  | 'subjects'
+  | 'resources'
+  | 'announcements'
+  | 'developer'
+  | 'profilePhotos'
+  | 'timetable'
+  | 'deadlines';
 export interface SiteSettings {
   version: number;
   features: Record<Feature, boolean>;
@@ -15,19 +23,30 @@ const SiteContext = createContext<{
 }>({ settings: null, error: '', reload: () => {} });
 export function SiteProvider({ children }: { children: ReactNode }) {
   const state = useApi<{ settings: SiteSettings }>('/site');
+  // This provider is keyed by the account. Keep its last confirmed settings during
+  // refreshes so a disabled feature never briefly reappears while /site is loading.
+  const [confirmed, setConfirmed] = useState<SiteSettings | null>(null);
+  useEffect(() => {
+    if (state.data) setConfirmed(state.data.settings);
+  }, [state.data]);
   useEffect(() => {
     const refresh = () => state.reload();
-    window.addEventListener('xvia:settings-updated', refresh);
+    window.addEventListener('zabsync:settings-updated', refresh);
     window.addEventListener('focus', refresh);
     return () => {
-      window.removeEventListener('xvia:settings-updated', refresh);
+      window.removeEventListener('zabsync:settings-updated', refresh);
       window.removeEventListener('focus', refresh);
     };
   }, [state.reload]);
+  const settings = state.data?.settings ?? confirmed;
+  if (!settings)
+    return state.error ? (
+      <ErrorNotice message={state.error} retry={state.reload} />
+    ) : (
+      <Spinner label="Loading your campus settings…" />
+    );
   return (
-    <SiteContext.Provider
-      value={{ settings: state.data?.settings ?? null, error: state.error, reload: state.reload }}
-    >
+    <SiteContext.Provider value={{ settings, error: state.error, reload: state.reload }}>
       {children}
     </SiteContext.Provider>
   );

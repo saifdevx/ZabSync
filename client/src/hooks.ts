@@ -3,12 +3,16 @@ import { errorMessage, useAuth } from './auth';
 
 /** Account-scoped request state. Cancels obsolete reads on navigation or account changes. */
 export function useApi<T>(path: string | null) {
-  const { request, me } = useAuth();
+  const { request, me, offline, lastSyncedAt } = useAuth();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(Boolean(path));
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((v) => v + 1), []);
+  useEffect(() => {
+    window.addEventListener('zabsync:content-updated', reload);
+    return () => window.removeEventListener('zabsync:content-updated', reload);
+  }, [reload]);
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
@@ -31,7 +35,7 @@ export function useApi<T>(path: string | null) {
       active = false;
       controller.abort();
     };
-  }, [path, request, me?.user.id, revision]);
+  }, [path, request, me?.user.id, offline, lastSyncedAt, revision]);
   return { data, error, loading, reload };
 }
 
@@ -53,5 +57,5 @@ export function queryString(values: Record<string, string | number | boolean | u
 }
 
 export function contentChanged() {
-  window.dispatchEvent(new CustomEvent('xvia:content-updated'));
+  window.dispatchEvent(new CustomEvent('zabsync:content-updated'));
 }

@@ -1,5 +1,7 @@
 # Upgrade from Checkpoint 1
 
+> Historical CP1 → CP2 guide, retained for reference. To upgrade either previous checkpoint to the code in this ZIP, use [UPGRADE_FROM_CHECKPOINT_2.md](UPGRADE_FROM_CHECKPOINT_2.md), which covers the cumulative CP3 migrations and the ZabSync rename.
+
 Checkpoint 2 is a complete replacement code package with additive database migrations. Existing accounts, class IDs, invitations, membership and representatives are preserved. A regression test uses the frozen original schema to verify this path and repeatable migration.
 
 ## If you only want to try the new demo

@@ -1,4 +1,4 @@
-export type ClassRole = 'student' | 'cr' | 'gr';
+export type ClassRole = 'student' | 'admin';
 export type Persona = ClassRole | 'master';
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'removed';
 export interface PublicConfig {
@@ -12,6 +12,7 @@ export interface PublicConfig {
 export interface AppUser {
   id: string;
   email: string;
+  rollNumber?: string | null;
   displayName: string;
   username?: string | null;
   avatarVersion?: string | null;
@@ -37,6 +38,7 @@ export interface ClassRequest extends ClassFields {
   createdAt: string;
 }
 export interface MeResponse {
+  canCreateClass: boolean;
   user: AppUser;
   classes: ClassSummary[];
   pendingMemberships: { id: string; classId: string; className: string; status: RequestStatus }[];
@@ -49,6 +51,8 @@ export interface ClassDetail {
   members: {
     userId: string;
     email?: string;
+    rollNumber?: string | null;
+    accountStatus?: string;
     displayName: string;
     username?: string | null;
     avatarVersion?: string | null;
@@ -73,7 +77,16 @@ export interface AdminOverview {
     classesTotal: number;
     auditTotal: number;
   };
-  stats: { users: number; classes: number; pendingRequests: number };
+  stats: {
+    users: number;
+    classes: number;
+    activeUsers: number;
+    suspendedUsers: number;
+    semesters: number;
+    admins: number;
+    pendingMemberships: number;
+    legacyClassRequests: number;
+  };
   requests: (ClassRequest & { requester: Pick<AppUser, 'id' | 'email' | 'displayName'> })[];
   users: AppUser[];
   classes: (ClassFields & { id: string; memberCount: number })[];

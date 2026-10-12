@@ -1,4 +1,4 @@
-# Checkpoint 2 academic API
+# Academic API — cumulative Checkpoint 3
 
 All endpoints require `Authorization: Bearer …`. All text is plain text; clients must render it as text, never HTML. UUIDs are identifiers, never access credentials. Server-side authorization uses current account status and current class membership on every route and again inside write transactions.
 
@@ -18,7 +18,7 @@ All endpoints require `Authorization: Bearer …`. All text is plain text; clien
 - `GET /api/announcements/:id`, `PATCH /api/announcements/:id`, `DELETE /api/announcements/:id`, `POST /api/announcements/:id/restore`.
 - Editing accepts the same content fields `title,body,priority,pinned,resourceIds`; omitting `resourceIds` preserves existing attachment links (use this when the resources feature is off). Audience cannot be moved after publication. Create a new notice for a different audience.
 - Announcement record: `{id,scope,classId,subjectId,className,subjectName,title,body,priority,pinned,authorName,createdAt,updatedAt,deletedAt,canManage,saved,resources}`. Single endpoints return `{announcement}`; list returns `{announcements,pagination}`.
-- Only Master Admin may create, edit, delete or restore global notices. Representatives may publish within their own class.
+- Only Master Admin may create, edit, delete or restore global notices. Class Admins may publish within their own class.
 
 ## Private resources
 
@@ -46,7 +46,7 @@ Uploads spool into private temporary files with bounded multipart fields, parts 
 
 Object storage and SQL cannot share one atomic transaction. Upload completion rechecks permissions and quota inside SQL; rejected completion removes its staged private object. Failed compensation logs its random storage key for operator reconciliation (never a filename or public URL). Permanent deletion retains a retryable deletion state until storage deletion and SQL cleanup succeed. An abrupt process failure during an upload can leave an unreferenced private object; reconcile objects against SQL during backup/maintenance before deleting them. Automatic orphan reconciliation is a later maintenance task. No public object keys are used.
 
-Turning subjects off also hides subject-scoped resources and notices, including their attachments, bookmarks and notifications. Class-level files and class/global announcements remain available under their own feature switches. Re-enabling the subject feature restores access to retained data. Turning resources off hides file attachments without deleting announcement text. Maintenance pauses changes for non-owner accounts while reads remain available; representative trash listings also remain readable.
+Turning subjects off also hides subject-scoped resources and notices, including their attachments, bookmarks and notifications. Class-level files and class/global announcements remain available under their own feature switches. Re-enabling the subject feature restores access to retained data. Turning resources off hides file attachments without deleting announcement text. Maintenance pauses changes for non-owner accounts while reads remain available; class admin trash listings also remain readable.
 
 ## Dependencies and sources
 
@@ -54,4 +54,4 @@ Turning subjects off also hides subject-scoped resources and notices, including 
 - [Cloudflare R2 AWS SDK v3 example](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/)
 - [yauzl archive inspection documentation](https://github.com/thejoshwolfe/yauzl)
 
-PWA saved-file storage and academic offline data remain Checkpoint3. A bookmark in Checkpoint2 is an online account preference.
+Checkpoint 3 adds explicit account-scoped snapshots and selected file blobs. A bookmark remains an online account preference and does not download its contents. See [OFFLINE](OFFLINE.md) for the device store and [TIMETABLE_API](TIMETABLE_API.md) for planning endpoints.

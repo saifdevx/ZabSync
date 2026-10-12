@@ -68,9 +68,13 @@ test('Firebase mode invokes its verifier, rejects demo tokens, and never infers 
     headers: { ...bearer('provider-verified-teacher'), 'x-role': 'master' },
   });
   expectSuccess(accepted);
-  const profile = accepted.json<{ user: { id: string; role: string }; classes: unknown[] }>();
+  const profile = accepted.json<{
+    user: { id: string; role: string; rollNumber: string | null };
+    classes: unknown[];
+  }>();
   assert.equal(profile.user.id, teacher.uid);
   assert.equal(profile.user.role, 'student');
+  assert.equal(profile.user.rollNumber, null);
   assert.deepEqual(profile.classes, []);
   assert.deepEqual(verifiedTokens, ['not-a-valid-provider-token', 'provider-verified-teacher']);
 
@@ -138,23 +142,51 @@ test('a verified teacher can sign in but only approved class membership permits 
     section: '5D',
     description: 'Membership is separate from control of a university email address.',
   };
-  const request = await app.inject({
+  const studentProfile = await app.inject({
+    method: 'GET',
+    url: '/api/me',
+    headers: bearer('student-token'),
+  });
+  expectSuccess(studentProfile);
+  assert.equal(studentProfile.json().canCreateClass, false);
+  assert.equal(studentProfile.json().user.rollNumber, '2412345');
+  const forbiddenCreation = await app.inject({
     method: 'POST',
-    url: '/api/class-requests',
+    url: '/api/classes',
     headers: bearer('student-token'),
     payload: classFields,
   });
-  expectSuccess(request);
-  const requestId = request.json<{ request: { id: string } }>().request.id;
-
-  const approval = await app.inject({
+  expectForbidden(forbiddenCreation);
+  const created = await app.inject({
     method: 'POST',
-    url: `/api/admin/class-requests/${requestId}/decision`,
+    url: '/api/classes',
     headers: bearer('owner-token'),
-    payload: { decision: 'approve' },
+    payload: classFields,
   });
-  expectSuccess(approval);
-  const classId = approval.json<{ classId: string }>().classId;
+  expectSuccess(created);
+  const classId = created.json<{ class: { id: string } }>().class.id;
+  const added = await app.inject({
+    method: 'POST',
+    url: `/api/admin/classes/${classId}/members`,
+    headers: bearer('owner-token'),
+    payload: { userId: student.uid },
+  });
+  expectSuccess(added);
+  assert.equal(added.json().membership.role, 'student');
+  const appointed = await app.inject({
+    method: 'PATCH',
+    url: `/api/admin/classes/${classId}/members/${student.uid}/role`,
+    headers: bearer('owner-token'),
+    payload: { role: 'admin' },
+  });
+  expectSuccess(appointed);
+  const studentAfterAppointment = await app.inject({
+    method: 'GET',
+    url: '/api/me',
+    headers: bearer('student-token'),
+  });
+  assert.equal(studentAfterAppointment.json().canCreateClass, true);
+  assert.equal(studentAfterAppointment.json().user.role, 'student');
 
   const teacherProfile = await app.inject({
     method: 'GET',
@@ -163,11 +195,12 @@ test('a verified teacher can sign in but only approved class membership permits 
   });
   expectSuccess(teacherProfile);
   const profile = teacherProfile.json<{
-    user: { email: string; role: string };
+    user: { email: string; role: string; rollNumber: string | null };
     classes: unknown[];
   }>();
   assert.equal(profile.user.email, teacher.email);
   assert.equal(profile.user.role, 'student');
+  assert.equal(profile.user.rollNumber, null);
   assert.deepEqual(profile.classes, []);
 
   const noMembership = await app.inject({
@@ -220,7 +253,7 @@ test('a verified teacher can sign in but only approved class membership permits 
     method: 'PATCH',
     url: `/api/classes/${classId}`,
     headers: bearer('teacher-token'),
-    payload: { ...classFields, name: 'A teacher email does not grant CR privileges' },
+    payload: { ...classFields, name: 'A teacher email does not grant class admin privileges' },
   });
   expectForbidden(cannotEdit);
 });

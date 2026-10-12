@@ -111,8 +111,8 @@ async function classAccess(db: Database, actor: CurrentUser, classId: string, ma
   requireCondition(
     !manage || access.role !== 'student',
     403,
-    'representative_required',
-    'Only this class’s representatives can do this.',
+    'admin_required',
+    'Only this class’s admins can do this.',
   );
   return access;
 }
@@ -132,7 +132,7 @@ function visibilitySql(
   subjectsEnabled: boolean,
   deleted = false,
 ) {
-  const membershipRole = deleted ? " AND member.role IN ('cr','gr')" : '';
+  const membershipRole = deleted ? " AND member.role = 'admin'" : '';
   const nonGlobal = `(EXISTS (SELECT 1 FROM classes classroom WHERE classroom.id=${alias}.class_id AND classroom.status='active')
     AND (EXISTS(SELECT 1 FROM users owner WHERE owner.id=? AND owner.status='active' AND owner.role='master')
       OR EXISTS(SELECT 1 FROM memberships member WHERE member.class_id=${alias}.class_id AND member.user_id=? AND member.status='active'${membershipRole})))`;
@@ -154,7 +154,7 @@ function visibilitySql(
 function manageSql(alias: 'a' | 'r' | 's') {
   return `(EXISTS(SELECT 1 FROM users owner WHERE owner.id=? AND owner.status='active' AND owner.role='master')
     OR (${alias}.class_id IS NOT NULL AND EXISTS(SELECT 1 FROM memberships manager WHERE manager.user_id=? AND manager.class_id=${alias}.class_id
-      AND manager.status='active' AND manager.role IN ('cr','gr')))) AS can_manage`;
+      AND manager.status='active' AND manager.role = 'admin'))) AS can_manage`;
 }
 
 function bookmarkSql(alias: 'a' | 'r', kind: 'announcement' | 'resource') {
@@ -763,7 +763,7 @@ export function registerAcademicRoutes(
           false,
           503,
           'file_unavailable',
-          'This file is temporarily unavailable. Contact your representative.',
+          'This file is temporarily unavailable. Contact your class admin.',
         );
       }
       return reply
@@ -848,7 +848,7 @@ export function registerAcademicRoutes(
     });
     await storage.delete(key);
     await inWriteTransaction(db, async (tx) => {
-      // Finish cleanup even if the initiating representative changes role after deleting the object.
+      // Finish cleanup even if the initiating class admin changes role after deleting the object.
       // This only completes an already authorized, durable deletion; it cannot change another object.
       const row = await first(
         tx,
@@ -1148,7 +1148,7 @@ export async function seedAcademic(db: Client, now = new Date()): Promise<void> 
         scope: 'global',
         classId: null,
         subjectId: null,
-        title: 'Welcome to XVIA',
+        title: 'Welcome to ZABSync',
         body: 'Demo announcement from the owner. Global notices appear for every signed-in university account.',
         pinned: 1,
         author: DEMO_USERS.master.id,
@@ -1161,7 +1161,7 @@ export async function seedAcademic(db: Client, now = new Date()): Promise<void> 
         title: 'Your class, in one place',
         body: 'Fictional demo notice: class-wide announcements appear on Home. Add your own announcement when your class is ready.',
         pinned: 0,
-        author: DEMO_USERS.cr.id,
+        author: DEMO_USERS.admin.id,
       },
       {
         id: '30000000-0000-4000-8000-000000000003',
@@ -1171,7 +1171,7 @@ export async function seedAcademic(db: Client, now = new Date()): Promise<void> 
         title: 'OS Lab resources start here',
         body: 'Fictional demo notice: upload a sample PDF or PowerPoint file, then attach it to a subject announcement.',
         pinned: 0,
-        author: DEMO_USERS.cr.id,
+        author: DEMO_USERS.admin.id,
       },
       {
         id: '30000000-0000-4000-8000-000000000004',
@@ -1179,9 +1179,9 @@ export async function seedAcademic(db: Client, now = new Date()): Promise<void> 
         classId: DEMO_OTHER_CLASS_ID,
         subjectId: null,
         title: 'Separate class sample notice',
-        body: 'This fictional notice belongs to another class and must stay hidden from the 5D student and representatives.',
+        body: 'This fictional notice belongs to another class and must stay hidden from the 5D student and class admins.',
         pinned: 0,
-        author: DEMO_USERS.otherCr.id,
+        author: DEMO_USERS.otherAdmin.id,
       },
     ]) {
       await tx.execute({

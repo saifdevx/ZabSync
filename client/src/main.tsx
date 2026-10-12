@@ -8,6 +8,8 @@ import { registerServiceWorker } from './InstallPage';
 import './styles.css';
 import './operations.css';
 import './academic.css';
+import './zabsync.css';
+import './weekly-timetable.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

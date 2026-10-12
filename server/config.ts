@@ -20,6 +20,7 @@ export interface AppConfig {
   databaseAuthToken?: string;
   allowedOrigins: string[];
   masterAdminEmail: string | null;
+  masterAdminUid: string | null;
   firebase: FirebasePublicConfig | null;
   firebaseAdminCredential: { projectId: string; clientEmail: string; privateKey: string } | null;
   firebaseUseApplicationDefault: boolean;
@@ -93,13 +94,30 @@ export function validateConfig(
       throw new Error('Demo authentication requires a local SQLite database.');
   }
   const masterAdminEmail = config.masterAdminEmail?.trim().toLowerCase() || null;
+  const masterAdminUid = config.masterAdminUid?.trim() || null;
   if (
     masterAdminEmail &&
-    (!z.email().safeParse(masterAdminEmail).success ||
-      masterAdminEmail.split('@')[1] !== ALLOWED_EMAIL_DOMAIN)
+    (masterAdminEmail.length > 254 || !z.email().safeParse(masterAdminEmail).success)
   ) {
-    throw new Error(`MASTER_ADMIN_EMAIL must be an exact @${ALLOWED_EMAIL_DOMAIN} address.`);
+    throw new Error('MASTER_ADMIN_EMAIL must be one complete email address.');
   }
+  if (
+    masterAdminUid &&
+    (!masterAdminEmail ||
+      masterAdminUid.length > 128 ||
+      /[\u0000-\u001f\u007f]/.test(masterAdminUid))
+  )
+    throw new Error(
+      'MASTER_ADMIN_UID requires MASTER_ADMIN_EMAIL and must be the exact Firebase UID (1–128 characters).',
+    );
+  if (
+    masterAdminEmail &&
+    masterAdminEmail.split('@')[1] !== ALLOWED_EMAIL_DOMAIN &&
+    !masterAdminUid
+  )
+    throw new Error(
+      'An external MASTER_ADMIN_EMAIL requires its exact Firebase MASTER_ADMIN_UID. Other external accounts remain ineligible.',
+    );
   if (config.authMode === 'firebase') {
     const publicConfig = config.firebase;
     if (
@@ -134,7 +152,13 @@ export function validateConfig(
   if (universityUrl.protocol !== 'https:') throw new Error('UNIVERSITY_URL must use HTTPS.');
   if (!config.appName.trim() || config.appName.length > 80)
     throw new Error('APP_NAME must contain 1–80 characters.');
-  return { ...config, allowedOrigins, masterAdminEmail, timezone: UNIVERSITY_TIMEZONE };
+  return {
+    ...config,
+    allowedOrigins,
+    masterAdminEmail,
+    masterAdminUid,
+    timezone: UNIVERSITY_TIMEZONE,
+  };
 }
 
 const envSchema = z.object({
@@ -146,6 +170,7 @@ const envSchema = z.object({
   DATABASE_AUTH_TOKEN: z.string().optional(),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://127.0.0.1:5173'),
   MASTER_ADMIN_EMAIL: z.string().optional(),
+  MASTER_ADMIN_UID: z.string().optional(),
   FIREBASE_API_KEY: z.string().optional(),
   FIREBASE_AUTH_DOMAIN: z.string().optional(),
   FIREBASE_PROJECT_ID: z.string().optional(),
@@ -153,7 +178,7 @@ const envSchema = z.object({
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   FIREBASE_PRIVATE_KEY: z.string().optional(),
   FIREBASE_USE_APPLICATION_DEFAULT: z.enum(['true', 'false']).default('false'),
-  APP_NAME: z.string().default('XVIA'),
+  APP_NAME: z.string().default('ZabSync'),
   UNIVERSITY_URL: z.string().url().default('https://szabist-isb.edu.pk/'),
 });
 
@@ -179,6 +204,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .map((value) => value.trim())
       .filter(Boolean),
     masterAdminEmail: e.MASTER_ADMIN_EMAIL || null,
+    masterAdminUid: e.MASTER_ADMIN_UID || null,
     firebase,
     firebaseAdminCredential:
       e.FIREBASE_CLIENT_EMAIL || e.FIREBASE_PRIVATE_KEY
@@ -205,6 +231,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     databaseUrl: 'file::memory:',
     allowedOrigins: ['http://localhost:5173', 'http://127.0.0.1:5173'],
     masterAdminEmail: null,
+    masterAdminUid: null,
     firebase:
       overrides.authMode === 'firebase'
         ? {
@@ -216,7 +243,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         : null,
     firebaseAdminCredential: null,
     firebaseUseApplicationDefault: false,
-    appName: 'XVIA',
+    appName: 'ZabSync',
     universityUrl: 'https://szabist-isb.edu.pk/',
     timezone: UNIVERSITY_TIMEZONE,
     ...overrides,

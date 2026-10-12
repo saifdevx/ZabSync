@@ -1,3 +1,5 @@
+import { registerTimetableRoutes, seedTimetableDemo } from './timetable.js';
+import { registerOfflineAccess } from './offline-access.js';
 import Fastify, { LogController, type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -128,6 +130,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     if (config.authMode === 'demo' && options.seedDemo !== false) {
       await seedDemoDatabase(db, now());
       await seedAcademic(db, now());
+      await seedTimetableDemo(db, now());
     }
     if (config.authMode === 'firebase' && !verifyFirebaseToken) {
       const provider = await createFirebaseVerifier(config);
@@ -343,6 +346,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     registerRoutes(app, context);
     registerOperationsRoutes(app, context);
     registerAcademicRoutes(app, context);
+    registerTimetableRoutes(app, context);
+    registerOfflineAccess(app, context);
 
     const staticRoot = options.staticRoot || resolve(process.cwd(), 'dist/client');
     const serveClient = await isDirectory(staticRoot);

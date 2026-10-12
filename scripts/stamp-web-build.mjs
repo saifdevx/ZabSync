@@ -15,14 +15,24 @@ async function files(path) {
   return result;
 }
 const hash = createHash('sha256');
-for (const path of await files(directory)) {
+const allFiles = await files(directory);
+for (const path of allFiles) {
   hash.update(relative(directory, path).replaceAll('\\', '/'));
   hash.update('\0');
   hash.update(await readFile(path));
 }
 const version = hash.digest('hex').slice(0, 16);
 const source = await readFile(new URL('../client/public/sw.js', import.meta.url), 'utf8');
-if (!source.includes('__XVIA_BUILD__'))
+if (!source.includes('__ZABSYNC_BUILD__') || !source.includes('/* __ZABSYNC_PUBLIC_ASSETS__ */'))
   throw new Error('The service worker build marker is missing.');
-await writeFile(join(directory, 'sw.js'), source.replaceAll('__XVIA_BUILD__', version));
-console.log(`XVIA web build ${version}: service-worker update marker prepared.`);
+const approved = allFiles.map((path) => `/${relative(directory, path).replaceAll('\\', '/')}`)
+  .filter((path) => ['/index.html', '/offline.html', '/manifest.webmanifest'].includes(path) ||
+    /^\/(icons|branding)\/[A-Za-z0-9_./-]+\.(png|svg|webp|jpg|jpeg|ico)$/.test(path) ||
+    /^\/assets\/[A-Za-z0-9_./-]+\.(js|css|woff2?|ttf|png|svg|webp|jpg|jpeg|ico)$/.test(path));
+if (!approved.includes('/index.html') || !approved.some((path) => /^\/assets\/.+\.js$/.test(path)))
+  throw new Error('Cannot prepare offline reopening without the built app shell and JavaScript.');
+const output = source.replaceAll('__ZABSYNC_BUILD__', version)
+  .replace(/\/\* __ZABSYNC_PUBLIC_ASSETS__ \*\/ \[[^;]*\]/, JSON.stringify(approved));
+if (output.includes('__ZABSYNC_')) throw new Error('An offline build marker was not replaced.');
+await writeFile(join(directory, 'sw.js'), output);
+console.log(`ZabSync web build ${version}: ${approved.length} public offline assets prepared.`);

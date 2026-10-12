@@ -1,9 +1,9 @@
 {
-  "name": "xvia",
-  "version": "0.2.0",
+  "name": "zabsync",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
-  "description": "XVIA \u2014 Node Compass Task, SZABIST Islamabad campus app, checkpoint 2",
+  "description": "ZabSync \u2014 Built for Students. Designed for Success \u2014 checkpoint 3",
   "engines": {
     "node": ">=24 <25"
   },
@@ -17,7 +17,8 @@
     "start": "node dist/server/index.js",
     "test": "node --import tsx --test tests/*.test.ts tests/*.test.tsx",
     "db:migrate": "node --import tsx server/migrate.ts",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "owner:transfer": "node --import tsx server/owner-transfer-cli.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1149.0",
@@ -48,6 +49,7 @@
     "@types/yauzl": "3.4.0",
     "@vitejs/plugin-react": "6.1.2",
     "concurrently": "10.0.6",
+    "fake-indexeddb": "6.2.5",
     "jsdom": "30.1.2",
     "prettier": "3.9.9",
     "tsx": "4.23.15",

@@ -1,101 +1,91 @@
-# XVIA on the web and your home screen
+# ZabSync on the web and your home screen
 
-XVIA is the short app name. **Node Compass Task** is the full product name used alongside it. This checkpoint includes a web manifest, the university icon you supplied, installation help, a browser installation button when supported, and a public reconnect page.
+**ZabSync** is the app name, with the tagline **Built for Students. Designed for Success**. The project runs as a website and includes home-screen installation support. Students can use the website without installing it.
 
-You can use the web app without installing it. Installation adds convenient access from a home screen or apps list; it does not create a separate university account.
+## Included in Checkpoint 3
 
-## What is available in Checkpoint 2
+| Capability                                                        | Status                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------- |
+| Responsive website, standalone manifest, supplied university icon | Included                                          |
+| Conditional browser installation prompt                           | Included when the browser offers its native event |
+| iPhone/iPad home-screen instructions                              | Included in Get the App                           |
+| Copy/share website link                                           | Included for a deployed non-local address         |
+| Public app-shell reopening after production installation          | Included                                          |
+| Prepared timetable, academic snapshot and chosen files offline    | Included; seven-day read-only access              |
+| Explicit update confirmation                                      | Included; no forced reload while editing          |
+| Android wrapper project, signed APK and Play preparation          | Checkpoint 5                                      |
 
-| Feature                                                         | Status                                                     |
-| --------------------------------------------------------------- | ---------------------------------------------------------- |
-| Responsive website                                              | Included                                                   |
-| Manifest with app name, icon, launch URL, and standalone mode   | Included                                                   |
-| iPhone and iPad installation instructions                       | Included on **Get the app**                                |
-| Native browser install button                                   | Appears only after the browser emits `beforeinstallprompt` |
-| Website copy/share link                                         | Included for a deployed, non-local website                 |
-| Public reconnect page after the production worker is installed  | Included                                                   |
-| A prompt before applying a service-worker update                | Included; no automatic page reload while someone edits     |
-| Offline timetable and saved class data                          | Checkpoint 3                                               |
-| Android project, signed APK, and Play Store release preparation | Checkpoint 5                                               |
+## Local and phone testing use different addresses
 
-No APK, App Store listing, public deployment, or live installation test is claimed in this ZIP.
+The demo binds to `127.0.0.1` and is intentionally limited to the computer running it. A phone's localhost is the phone itself. The demo persona selector must not be exposed to the internet.
 
-## First, use a deployed HTTPS website for phone testing
+For a local production-build check:
 
-The local demo binds to `127.0.0.1` and deliberately refuses access from other computers. The address on your computer is not a website students can open on their phones. Do not expose the demo account selector publicly.
+```sh
+npm run build
+npm start
+```
 
-To test the phone experience, configure the real Firebase authentication path, configure persistent SQL and file storage, and deploy the production build to a public HTTPS address. See [GitHub and deployment](GITHUB_AND_DEPLOYMENT.md) for the Render production configuration. The owner chooses and controls that domain and hosting account.
+Open **http://127.0.0.1:3001** on that computer. The service worker is not installed by the Vite development server on port 5173. A fresh compiled app visit while online allows the public shell to prepare; use Available offline to prepare a Student or Class Admin account's academic snapshot separately. The owner console is online-only and does not offer this preparation control.
 
-Add the deployed domain to Firebase's authorized domains and use the same origin for the frontend and API. Check the environment configuration guide before deploying. The production app requires its server and database; uploading the frontend alone to static hosting is insufficient.
+For real phone use, configure Firebase, persistent SQL and private file storage, then serve the combined Node application at your HTTPS origin. Add that hostname to Firebase's authorized domains. See [GITHUB_AND_DEPLOYMENT](GITHUB_AND_DEPLOYMENT.md). A frontend-only static deployment leaves the API missing.
 
-The service worker is registered only in a production client build on a secure context. It is not registered by `npm run dev`. Browsers generally allow localhost as a secure development context, but that exception is only for the computer opening the local address. For students using their own devices, use HTTPS. See [MDN: Making PWAs installable](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).
-
-For a compiled local check, run `npm run build` followed by `npm start`, then open `http://127.0.0.1:3001` on that computer. This can check the production files locally; it does not make the demo available on a phone.
+Browsers apply their own installation rules. HTTPS is required for ordinary hosted use; localhost/loopback are accepted development exceptions. The native installation prompt and iOS menu behavior differ. See [MDN: making PWAs installable](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).
 
 ## iPhone and iPad
 
-1. Open your deployed XVIA website in **Safari**.
-2. Open **Share**. On some Safari layouts, open the page menu first.
+1. Open the deployed ZabSync website in Safari.
+2. Open the Share menu, using the page menu first if required by that Safari layout.
 3. Choose **Add to Home Screen**.
-4. If your version displays **Open as Web App**, turn it on.
-5. Keep the name **XVIA**, or choose your own local label, and tap **Add**.
+4. If **Open as Web App** appears, enable it.
+5. Keep the name ZabSync and tap **Add**.
 
-Open the new home-screen icon and sign in if requested. These steps use the website and do not require an App Store release. Browser/OS versions can differ in their menu layout. Apple's guide explains the current options: [Add a website icon to your Home Screen](https://support.apple.com/guide/iphone/bookmark-a-website-iph42ab2f3a7/ios).
+Launch from the icon and sign in if requested. This route does not require an App Store listing. If the action is not immediately visible, look in Edit Actions. Menu layout varies with OS versions and device policies. See [Apple's home-screen website guide](https://support.apple.com/guide/iphone/bookmark-a-website-iph42ab2f3a7/ios).
 
-If you cannot see **Add to Home Screen**, check **Edit Actions** in Safari's share sheet. If a school or device-management policy removes installation, students can still open XVIA in the browser. No workflow bypasses their device's restrictions.
+Prepare offline access from the installed/home-screen context itself. Do not assume every browser, private window and installed app shares the same device storage.
 
 ## Android and desktop browsers
 
-Open the deployed website in a browser with web-app installation support. When the browser offers installation, XVIA's **Install XVIA** button opens that native prompt. Otherwise look for **Install app** or **Add to Home screen** in the browser menu. The wording and availability depend on the browser and device.
+When a browser emits `beforeinstallprompt`, Get the App can offer **Install ZabSync**. If the event is unavailable, use the browser's Install app/Add to Home screen menu if present, or keep using the website. The UI does not pretend the event is universally supported.
 
-The install button is intentionally conditional. `beforeinstallprompt` is not supported in every browser and has no guaranteed firing time. The app keeps the event when it arrives and shows the button only then; it does not display a nonworking native-install button. See [MDN: beforeinstallprompt](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeinstallprompt_event).
+Accepting a prompt is not proof of installation. The app checks the browser's installation event and standalone display mode before claiming an installed state. Reference: [MDN: beforeinstallprompt](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeinstallprompt_event).
 
-Choosing an install prompt is not treated as proof of installation. XVIA uses the browser's `appinstalled` event or standalone-display detection to show the installed state.
+## Icon and product identity
 
-## The supplied icon
+The active favicon and Apple touch icon are `client/public/icons/zabsync-icon.png`, a byte-for-byte copy of the supplied 447 × 447 image. `zabsync-icon.svg` is a code-created SVG container embedding that unchanged raster. It provides scalable layout while retaining the original image detail; it is not a newly vectorized university logo.
 
-- `client/public/icons/xvia-icon.png` is a byte-for-byte copy of the 447 × 447 PNG supplied in this conversation.
-- The PNG is the favicon and Apple touch icon.
-- `client/public/icons/xvia-icon.svg` is a code-created SVG container that embeds the unchanged PNG at a scalable layout size. It does not redraw or vectorize the university logo, and the underlying image still contains its original 447-pixel detail.
-- The manifest declares `sizes: "any"` for the SVG and the true `447x447` size for the PNG fallback. It does not label the PNG as a size it does not have.
-- The icon uses `purpose: "any"`; it is not claimed to be a tested maskable Android icon.
+The manifest declares `sizes: any` for the SVG and the true raster dimensions for the PNG fallback. The PNG is not falsely labelled 192 or 512 pixels. Old `xvia-icon` files remain compatibility aliases for existing installations. The manifest identity remains `/` so the rename does not intentionally introduce a separate application identity at the same origin.
 
-Google's [web app manifest guide](https://web.dev/articles/add-manifest) documents SVG support in Chromium and recommends a raster fallback. [MDN's icons reference](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest/Reference/icons) describes `any` for scalable SVG icons. Actual icon selection and home-screen appearance still need to be checked on the target devices before release. If a target browser does not install from these assets, add verified 192 × 192 and 512 × 512 raster exports from the approved logo and repeat that device's install test.
+Actual browser icon selection and home-screen cropping remain device acceptance checks. The icons are `purpose: any`, not a verified maskable asset. If a target browser needs dedicated 192/512 raster assets, export those from the approved logo and repeat installation on that browser. References: [web.dev manifest guidance](https://web.dev/articles/add-manifest) and [MDN manifest icons](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest/Reference/icons).
 
-## Offline behavior and privacy
+## What offline use actually saves
 
-Checkpoint 2's worker caches only two public files: `/offline.html` and `/icons/xvia-icon.png`. An online page navigation comes from the network. If that navigation cannot reach the network, the worker returns the public reconnect page.
+The production worker's build-stamped allowlist includes the public HTML, generated JS/CSS chunks, manifest and approved branding/icon assets. It includes lazy chunks so reopening does not silently depend on a later code download. It excludes API requests, bearer-token requests, private photos and lecture-download responses.
 
-It does **not** cache the authenticated app, class pages, announcements, lecture files, API responses, profile photos, Firebase responses, or any request carrying an Authorization header. API routes and upload/download paths bypass the worker. It does not queue writes or claim background sync.
+Student and Class Admin account snapshots and explicitly chosen file bytes use separate IndexedDB storage. Master Admin snapshots are not supported; use the university account for offline class participation. Prepare a device online, wait for the complete-sync time and shell-readiness message, then select lecture files individually with Save offline. The app shows a saved read-only view after a real connection failure. HTTP 401/403 denials do not authorize cached fallback.
 
-You must have opened the production website successfully while online for the worker and reconnect page to be available. Browser storage can be cleared or evicted. The saved timetable, explicit file downloads, per-user offline stores, sync timestamps, and offline-reopening requirements remain part of Checkpoint 3.
+Only the active prepared account can use that device store. Sign-out/account switching clears it. Offline access expires after seven days; reconnecting revalidates current access and removes invalid stored content. A disconnected browser cannot instantly receive a new account suspension. External browser downloads are independent files and cannot be revoked by the app. Full behavior and limits: [OFFLINE](OFFLINE.md).
 
-## Updating safely
+Browser storage is not permanent and can be evicted or cleared. See [MDN storage quotas and eviction](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria).
 
-The worker waits when a newer version is ready. XVIA displays an update banner instead of replacing the page immediately. The student chooses **Update**, is reminded to save their edits, and then chooses **Update and reload**. Only the tab that confirms the action reloads; other tabs are not forcibly reloaded.
+## Software updates
 
-The implementation uses `skipWaiting()` only in response to that explicit update message. See [MDN: ServiceWorkerGlobalScope.skipWaiting](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerGlobalScope/skipWaiting).
+A new worker waits when an earlier version controls open tabs. The app shows an update banner. Finish editing, choose Update, then confirm **Update and reload**. Only the consenting tab reloads automatically. The new worker also understands the prior version's explicit update message.
 
-After a deployment, a fresh network page load also receives the current frontend, since this checkpoint does not cache the authenticated application shell. New software is delivered by a reviewed build and deployment. Dashboard controls change stored content and enable or disable implemented features; they do not install arbitrary code into a running server.
+Online navigation requests use the network; if navigation fails, the cached public shell starts the offline access flow. Existing hashed assets remain associated with their build. An uncached old lazy chunk in another open tab may require a refresh after an update; no tab is promised indefinite compatibility across deployed API changes. Save work and refresh when prompted. Reference: [MDN: skipWaiting](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerGlobalScope/skipWaiting).
 
-## Android APK and Play Store plan
+Dashboard feature switches change database settings. New code still requires a reviewed source build and deployment through GitHub.
 
-The planned Android wrapper is Capacitor. Its Android runtime connects a web application to native Android capabilities and is managed with Android Studio: [Capacitor Android documentation](https://capacitorjs.com/docs/android).
+## Android APK and Play Store
 
-Checkpoint 5 will add the Android project, device testing, and release instructions. We will configure the production API origin, authentication behavior, allowed origins, storage, download handling, and later notification/offline integration for the native build. Wrapping the UI does not remove the need for a hosted backend and persistent storage.
+Checkpoint 5 will add the Capacitor Android project, actual-device testing and signing instructions. A hosted backend remains necessary for online accounts and shared content. We must test Firebase sign-in, API origins, private downloads, offline storage, native file handling and notifications inside the wrapper. Reference: [Capacitor Android](https://capacitorjs.com/docs/android).
 
-For direct distribution, the owner will build and sign an APK, keep its signing key private, and publish the verified file at a stable HTTPS download link with a version and checksum. Users may need to allow installation from that source according to Android's device rules. App updates must use a compatible signing identity. A direct-download APK is separate from the web installation described above. See [Android: Sign your app](https://developer.android.com/studio/publish/app-signing).
+For a direct download link, build and sign a release APK, preserve the signing key privately, and host the verified file over HTTPS with its version and checksum. Android may ask the user to authorize installation from that source. Updates need compatible signing. Reference: [Android app signing](https://developer.android.com/studio/publish/app-signing).
 
-For the Play Store, prepare the required Android App Bundle and complete the current developer-account, testing, privacy, and store requirements at release time. Those requirements may change; we will verify them again when you are ready to publish. No signing key, developer account, or store publication is needed to try this checkpoint locally.
+Play distribution will require the current account/testing/privacy requirements and an appropriate release bundle; verify those at release time. This checkpoint contains no APK/AAB, signing key or Play listing.
 
-## Device checks to perform before release
+## Remaining real-device acceptance
 
-These are remaining acceptance checks, not completed-test claims:
+Test the configured HTTPS build on an actual iPhone and Android: install/launch, sign-in and sign-out, portal links, the Meet the Developer page and its links, downloads, large text, keyboard/focus access, reduced motion, narrow screens and a slow connection. Prepare offline data/files, close/reopen offline, then reconnect after a membership revocation. Test an explicit update in two open tabs.
 
-1. iPhone Safari: open, add to home screen, launch, sign in, sign out, follow portal/tutor links, and open/download a permitted file.
-2. Android Chrome: verify the actual manifest and icons, install, launch, and check navigation and file behavior.
-3. On both devices: confirm that no class data becomes visible across account switches, that the public reconnect page appears after a successful initial visit, and that unsaved edits are not lost to an automatic update.
-4. Deploy another build: confirm the update prompt appears when a new worker is waiting and only the consenting tab reloads.
-5. Repeat with keyboard navigation, large text, reduced motion, narrow screens, and a slow connection.
-
-This checkpoint includes source and automated checks for the implementation. A production hosting account, university mailbox, physical phone, and actual browser installation were not available for live verification here.
+These device checks are supplied for the release process. Automated API, DOM, IndexedDB and worker harnesses ran in development; physical phones and live university-provider accounts were not available for verification in this delivery.

@@ -10,12 +10,12 @@ export const DEMO_USERS = {
     email: 'demo.student@szabist-isb.pk',
     displayName: 'Areeba Khan',
   },
-  cr: {
+  admin: {
     id: '00000000-0000-4000-8000-000000000002',
     email: 'demo.cr@szabist-isb.pk',
     displayName: 'Hamza Ahmed',
   },
-  gr: {
+  legacyGr: {
     id: '00000000-0000-4000-8000-000000000003',
     email: 'demo.gr@szabist-isb.pk',
     displayName: 'Sara Ali',
@@ -23,9 +23,9 @@ export const DEMO_USERS = {
   master: {
     id: '00000000-0000-4000-8000-000000000004',
     email: 'demo.master@szabist-isb.pk',
-    displayName: 'XVIA Owner',
+    displayName: 'ZabSync Owner',
   },
-  otherCr: {
+  otherAdmin: {
     id: '00000000-0000-4000-8000-000000000005',
     email: 'demo.other-cr@szabist-isb.pk',
     displayName: 'Bilal Hassan',
@@ -95,14 +95,15 @@ export async function seedDemo(db: Client, now = new Date()): Promise<void> {
         stamp,
       ],
     });
-    for (const persona of ['student', 'cr', 'gr', 'master'] as const) {
+    // The owner uses its console; existing historical owner memberships are left intact.
+    for (const persona of ['student', 'admin', 'legacyGr'] as const) {
       await tx.execute({
         sql: 'INSERT OR IGNORE INTO memberships(id,class_id,user_id,role,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
         args: [
           randomUUID(),
           DEMO_CLASS_ID,
           DEMO_USERS[persona].id,
-          persona === 'cr' || persona === 'gr' ? persona : 'student',
+          persona === 'admin' || persona === 'legacyGr' ? 'admin' : 'student',
           'active',
           stamp,
           stamp,
@@ -114,8 +115,8 @@ export async function seedDemo(db: Client, now = new Date()): Promise<void> {
       args: [
         randomUUID(),
         DEMO_OTHER_CLASS_ID,
-        DEMO_USERS.otherCr.id,
-        'cr',
+        DEMO_USERS.otherAdmin.id,
+        'admin',
         'active',
         stamp,
         stamp,

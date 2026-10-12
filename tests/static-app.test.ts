@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createTestApp } from './helpers.js';
 
-test('the compiled checkpoint 2 app serves deep links, assets, install metadata and stamped public fallback while APIs stay JSON', async (t) => {
+test('the compiled checkpoint 3 app serves deep links, assets, install metadata and a complete stamped public shell while APIs stay JSON', async (t) => {
   const staticRoot = fileURLToPath(new URL('../dist/client/', import.meta.url));
   let builtHtml: string;
   try {
@@ -18,18 +18,31 @@ test('the compiled checkpoint 2 app serves deep links, assets, install metadata 
   }
   assert.match(builtHtml, /id="root"/);
   assert.doesNotMatch(builtHtml, /src="\/src\/.*\.tsx"/);
-  assert.match(builtHtml, /<title>XVIA · Node Compass Task<\/title>/);
+  assert.match(builtHtml, /<title>ZabSync · Built for Students. Designed for Success<\/title>/);
   assert.match(builtHtml, /rel="manifest"[^>]*href="\/manifest\.webmanifest"/);
-  assert.match(builtHtml, /rel="icon"[^>]*href="\/icons\/xvia-icon\.png"/);
-  assert.match(builtHtml, /rel="apple-touch-icon"[^>]*href="\/icons\/xvia-icon\.png"/);
+  assert.match(builtHtml, /rel="icon"[^>]*href="\/icons\/zabsync-icon\.png"/);
+  assert.match(builtHtml, /rel="apple-touch-icon"[^>]*href="\/icons\/zabsync-icon\.png"/);
   const app = await createTestApp(t, { staticRoot });
 
   // These match client/src/App.tsx routes. Every direct visit must load the same
   // compiled shell; the client and API then apply authentication and permissions.
   for (const url of [
-    '/', '/classes', '/classes/10000000-0000-4000-8000-000000000001',
-    '/requests', '/account', '/admin', '/install', '/tutor', '/saved',
-    '/search?q=databases', '/more', '/notifications', '/announcements',
+    '/',
+    '/classes',
+    '/classes/10000000-0000-4000-8000-000000000001',
+    '/requests',
+    '/account',
+    '/admin',
+    '/install',
+    '/tutor',
+    '/saved',
+    '/timetable',
+    '/deadlines',
+    '/offline',
+    '/search?q=databases',
+    '/more',
+    '/notifications',
+    '/announcements',
     '/subjects/20000000-0000-4000-8000-000000000001',
     '/announcements/30000000-0000-4000-8000-000000000001',
   ]) {
@@ -69,27 +82,41 @@ test('the compiled checkpoint 2 app serves deep links, assets, install metadata 
 
   const manifestResponse = await app.inject({ method: 'GET', url: '/manifest.webmanifest' });
   assert.equal(manifestResponse.statusCode, 200, manifestResponse.body);
-  assert.match(String(manifestResponse.headers['content-type']), /application\/(?:manifest\+json|json)/);
+  assert.match(
+    String(manifestResponse.headers['content-type']),
+    /application\/(?:manifest\+json|json)/,
+  );
   const manifest = manifestResponse.json<{
-    id: string; name: string; short_name: string; start_url: string; scope: string;
-    display: string; icons: { src: string; sizes: string; type: string }[];
+    id: string;
+    name: string;
+    short_name: string;
+    start_url: string;
+    scope: string;
+    display: string;
+    icons: { src: string; sizes: string; type: string }[];
   }>();
-  assert.equal(manifest.name, 'XVIA · Node Compass Task');
-  assert.equal(manifest.short_name, 'XVIA');
+  assert.equal(manifest.name, 'ZabSync · Built for Students. Designed for Success');
+  assert.equal(manifest.short_name, 'ZabSync');
   assert.equal(manifest.id, '/');
   assert.equal(manifest.start_url, '/');
   assert.equal(manifest.scope, '/');
   assert.equal(manifest.display, 'standalone');
-  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/xvia-icon.png'));
+  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/zabsync-icon.png'));
   for (const icon of manifest.icons) {
-    assert.ok(icon.src.startsWith('/') && !icon.src.startsWith('//'), 'Packaged install icons must be same-origin paths.');
+    assert.ok(
+      icon.src.startsWith('/') && !icon.src.startsWith('//'),
+      'Packaged install icons must be same-origin paths.',
+    );
     const response = await app.inject({ method: 'GET', url: icon.src });
     assert.equal(response.statusCode, 200, icon.src);
     assert.equal(String(response.headers['content-type']).split(';')[0], icon.type);
     if (icon.type === 'image/png') {
       assert.deepEqual([...response.rawPayload.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
       const actualSize = `${response.rawPayload.readUInt32BE(16)}x${response.rawPayload.readUInt32BE(20)}`;
-      assert.ok(icon.sizes.split(/\s+/).includes(actualSize), 'Manifest PNG dimensions must match the actual provided icon.');
+      assert.ok(
+        icon.sizes.split(/\s+/).includes(actualSize),
+        'Manifest PNG dimensions must match the actual provided icon.',
+      );
     } else if (icon.type === 'image/svg+xml') {
       assert.match(response.body, /<svg\b/);
     }
@@ -98,17 +125,54 @@ test('the compiled checkpoint 2 app serves deep links, assets, install metadata 
   const fallback = await app.inject({ method: 'GET', url: '/offline.html' });
   assert.equal(fallback.statusCode, 200, fallback.body);
   assert.match(String(fallback.headers['content-type']), /text\/html/);
-  assert.equal(fallback.body, await readFile(new URL('../dist/client/offline.html', import.meta.url), 'utf8'));
-  assert.match(fallback.body, /Reconnect · XVIA/);
-  assert.match(fallback.body, /src="\/icons\/xvia-icon\.png"/);
-  assert.doesNotMatch(fallback.body, /id="root"/, 'The public connection fallback must be served as its own page.');
+  assert.equal(
+    fallback.body,
+    await readFile(new URL('../dist/client/offline.html', import.meta.url), 'utf8'),
+  );
+  assert.match(fallback.body, /Reconnect · ZabSync/);
+  assert.match(fallback.body, /src="\/icons\/zabsync-icon\.png"/);
+  assert.doesNotMatch(
+    fallback.body,
+    /id="root"/,
+    'The public connection fallback must be served as its own page.',
+  );
 
   const serviceWorker = await app.inject({ method: 'GET', url: '/sw.js' });
   assert.equal(serviceWorker.statusCode, 200, serviceWorker.body);
   assert.match(String(serviceWorker.headers['content-type']), /javascript/);
-  assert.equal(serviceWorker.body, await readFile(new URL('../dist/client/sw.js', import.meta.url), 'utf8'));
-  assert.doesNotMatch(serviceWorker.body, /__XVIA_BUILD__/, 'The deployable service worker must have its build marker stamped.');
-  assert.match(serviceWorker.body, /xvia-public-connection-v2-[a-f0-9]{16}/);
+  assert.equal(
+    serviceWorker.body,
+    await readFile(new URL('../dist/client/sw.js', import.meta.url), 'utf8'),
+  );
+  assert.doesNotMatch(
+    serviceWorker.body,
+    /__ZABSYNC_(BUILD|PUBLIC_ASSETS)__/,
+    'The deployable service worker must have its build marker stamped.',
+  );
+  assert.match(serviceWorker.body, /zabsync-public-shell-v3-[a-f0-9]{16}/);
+
+  const precacheMatch = serviceWorker.body.match(/const PUBLIC_FILES = (\[[^;]+\]);/);
+  assert.ok(precacheMatch, 'The built worker has an explicit JSON public-asset list.');
+  const precache = JSON.parse(precacheMatch[1]!) as string[];
+  for (const entry of await readdir(new URL('../dist/client/assets/', import.meta.url))) {
+    if (/\.(js|css)$/.test(entry))
+      assert.ok(
+        precache.includes(`/assets/${entry}`),
+        `${entry} must be available on a cold offline reopening.`,
+      );
+  }
+  assert.ok(precache.includes('/index.html'));
+  assert.ok(precache.includes('/manifest.webmanifest'));
+  assert.ok(precache.includes('/icons/zabsync-icon.png'));
+  assert.ok(precache.every((path) => !/^\/(api|uploads|downloads)(\/|$)/.test(path)));
+  for (const url of precache) {
+    const response = await app.inject({ method: 'GET', url });
+    assert.equal(
+      response.statusCode,
+      200,
+      `Offline asset ${url} must exist in the delivered build.`,
+    );
+  }
 
   for (const url of ['/api', '/api/a-route-that-does-not-exist']) {
     const unknownApi = await app.inject({ method: 'GET', url });

@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "XVIA · Node Compass Task",
-  "short_name": "XVIA",
+  "name": "ZabSync · Built for Students. Designed for Success",
+  "short_name": "ZabSync",
   "description": "Your SZABIST Islamabad classes, resources, and announcements in one place.",
   "lang": "en",
   "start_url": "/",
@@ -11,7 +11,7 @@
   "theme_color": "#192e59",
   "prefer_related_applications": false,
   "icons": [
-    { "src": "/icons/xvia-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icons/xvia-icon.png", "sizes": "447x447", "type": "image/png", "purpose": "any" }
+    { "src": "/icons/zabsync-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/zabsync-icon.png", "sizes": "447x447", "type": "image/png", "purpose": "any" }
   ]
 }

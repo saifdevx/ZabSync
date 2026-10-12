@@ -1,6 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Link,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
+import {
+  CalendarDays,
+  Code2,
+  CheckSquare2,
   ArrowUpRight,
   Bell,
   Bookmark,
@@ -33,12 +45,15 @@ import {
   SearchPage,
   SubjectPage,
 } from './AcademicPages';
-import { ProfilePage, TutorPage } from './OperationsPages';
+import { DeveloperPage, ProfilePage } from './OperationsPages';
+import { PlanningPage } from './PlanningPages';
+import { OfflinePage } from './OfflinePage';
 import { InstallBanner, InstallPage, InstallProvider } from './InstallPage';
 import { SiteProvider, useSite } from './site';
 import { useApi } from './hooks';
 import type { NotificationsData } from './academic-types';
 import type { Persona } from './types';
+import { enrolledClasses, isMaster } from './permissions';
 
 export default function App() {
   return (
@@ -90,6 +105,19 @@ function AuthenticatedApp() {
         </div>
       </main>
     );
+  if (!['student', 'master'].includes(auth.me.user.role) || auth.me.user.status !== 'active')
+    return (
+      <main className="center-screen">
+        <div className="verification-card">
+          <ShieldCheck size={36} />
+          <h1>Account access is unavailable.</h1>
+          <ErrorNotice message="Your account permissions could not be confirmed. Reconnect and sign in again." />
+          <button className="button button-secondary" onClick={() => void auth.logout()}>
+            Back to sign in
+          </button>
+        </div>
+      </main>
+    );
   return (
     <SiteProvider key={auth.me.user.id}>
       <AppShell />
@@ -104,52 +132,63 @@ function AppShell() {
   const navigate = useNavigate();
   const toast = useToast();
   const site = useSite();
-  const [online, setOnline] = useState(navigator.onLine);
+  const owner = isMaster(me);
+  const homePath = owner ? '/admin' : '/';
   const [switching, setSwitching] = useState(false);
-  const nav = [
-    { to: '/', label: 'Overview', mobile: 'Home', icon: Home },
-    { to: '/classes', label: 'My classes', mobile: 'Classes', icon: LayoutGrid },
-    ...(site.settings?.features.announcements === false
-      ? []
-      : [{ to: '/announcements', label: 'Noticeboard', mobile: 'Updates', icon: Bell }]),
-    { to: '/saved', label: 'Saved for later', mobile: 'Saved', icon: Bookmark },
-    { to: '/search', label: 'Search', mobile: 'Search', icon: Search },
-    { to: '/requests', label: 'My requests', mobile: 'Requests', icon: ClipboardList },
-    ...(site.settings?.features.tutor === false
-      ? []
-      : [{ to: '/tutor', label: 'Tutor', mobile: 'Tutor', icon: Users }]),
-    { to: '/install', label: 'Get the app', mobile: 'Install', icon: Smartphone },
-  ];
-  const mobileNav = [
-    { to: '/', label: 'Home', icon: Home },
-    { to: '/classes', label: 'Classes', icon: LayoutGrid },
-    site.settings?.features.announcements === false
-      ? { to: '/search', label: 'Search', icon: Search }
-      : { to: '/announcements', label: 'Updates', icon: Bell },
-    { to: '/saved', label: 'Saved', icon: Bookmark },
-    { to: '/more', label: 'More', icon: Menu },
-  ];
+  const nav = owner
+    ? [
+        { to: '/admin', label: 'Owner dashboard', icon: ShieldCheck },
+        { to: '/developer', label: 'Meet the Developer', icon: Code2 },
+        { to: '/install', label: 'Get the App', icon: Smartphone },
+        { to: '/account', label: 'My profile', icon: UserRound },
+      ]
+    : [
+        { to: '/', label: 'Home', icon: Home },
+        { to: '/classes', label: 'My classes', icon: BookOpen },
+        ...(site.settings?.features.timetable === false
+          ? []
+          : [{ to: '/timetable', label: 'Timetable', icon: CalendarDays }]),
+        ...(site.settings?.features.deadlines === false
+          ? []
+          : [{ to: '/deadlines', label: 'Deadlines', icon: CheckSquare2 }]),
+        ...(site.settings?.features.announcements === false
+          ? []
+          : [{ to: '/announcements', label: 'Noticeboard', icon: Bell }]),
+        { to: '/saved', label: 'Saved items', icon: Bookmark },
+        { to: '/offline', label: 'Offline access', icon: WifiOff },
+        { to: '/install', label: 'Get the App', icon: Smartphone },
+      ];
+  const mobile = owner
+    ? [
+        { to: '/admin', label: 'Console', icon: ShieldCheck },
+        { to: '/developer', label: 'Developer', icon: Code2 },
+        { to: '/install', label: 'Get the App', icon: Smartphone },
+        { to: '/more', label: 'More', icon: LayoutGrid },
+      ]
+    : [
+        { to: '/', label: 'Home', icon: Home },
+        site.settings?.features.timetable === false
+          ? { to: '/classes', label: 'Classes', icon: BookOpen }
+          : { to: '/timetable', label: 'Timetable', icon: CalendarDays },
+        site.settings?.features.announcements === false
+          ? { to: '/saved', label: 'Saved', icon: Bookmark }
+          : { to: '/announcements', label: 'Updates', icon: Bell },
+        { to: '/more', label: 'More', icon: LayoutGrid },
+      ];
   const notifications = useApi<NotificationsData>(
-    site.settings?.features.announcements === false ? null : '/notifications?limit=1',
+    owner || auth.offline || site.settings?.features.announcements !== true
+      ? null
+      : '/notifications?limit=1',
   );
   useEffect(() => {
     const refresh = () => notifications.reload();
-    window.addEventListener('xvia:content-updated', refresh);
+    window.addEventListener('zabsync:content-updated', refresh);
     window.addEventListener('focus', refresh);
     return () => {
-      window.removeEventListener('xvia:content-updated', refresh);
+      window.removeEventListener('zabsync:content-updated', refresh);
       window.removeEventListener('focus', refresh);
     };
   }, [notifications.reload]);
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
-  }, []);
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, [location.pathname]);
@@ -167,54 +206,60 @@ function AppShell() {
         Skip to content
       </a>
       <aside className="sidebar">
-        <Link className="app-brand" to="/" aria-label="XVIA home">
-          <img className="brand-logo" src="/icons/xvia-icon.png" alt="" width="44" height="44" />
+        <Link
+          className="app-brand"
+          to={homePath}
+          aria-label={owner ? 'ZabSync owner dashboard' : 'ZabSync home'}
+        >
+          <img className="brand-logo" src="/icons/zabsync-icon.png" alt="" width="44" height="44" />
           <span>
-            <strong>{auth.config?.appName ?? 'XVIA'}</strong>
-            <small>NODE COMPASS TASK</small>
+            <strong>
+              Zab<span className="brand-sync">Sync</span>
+            </strong>
+            <small>YOUR CAMPUS, CONNECTED</small>
           </span>
         </Link>
-        <div className="nav-section-label">YOUR CAMPUS</div>
+        <div className="nav-section-label">{owner ? 'OWNER WORKSPACE' : 'YOUR EVERYDAY'}</div>
         <nav aria-label="Main navigation">
           {nav.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.to === '/'}>
               <item.icon size={20} />
               <span>{item.label}</span>
-              {item.to === '/classes' && <span className="nav-count">{me.classes.length}</span>}
+              {item.to === '/classes' && (
+                <span className="nav-count">{enrolledClasses(me).length}</span>
+              )}
             </NavLink>
           ))}
-          {me.user.role === 'master' && (
-            <>
-              <div className="nav-section-label admin-label">ADMINISTRATION</div>
-              <NavLink to="/admin">
-                <ShieldCheck size={20} />
-                <span>Master Admin</span>
-              </NavLink>
-            </>
-          )}
         </nav>
-        <div className="sidebar-campus">
-          <img src="/branding/szabist-emblem.png" alt="SZABIST" />
-          <span>
-            Connected by campus.
-            <br />
-            Organized by you.
+        <Link className="sidebar-developer" to="/developer">
+          <span className="sidebar-developer-icon">
+            <Code2 size={21} />
           </span>
-          <a href={auth.config?.universityUrl} target="_blank" rel="noopener noreferrer">
-            University website <ArrowUpRight size={14} />
-          </a>
-        </div>
+          <strong>Meet the Developer</strong>
+          <p>The person behind ZabSync, their updates and other apps.</p>
+          <span className="sidebar-developer-link">
+            Open developer page <ArrowUpRight size={15} />
+          </span>
+        </Link>
         <div className="sidebar-profile">
           <Link to="/account">
             <Avatar
               name={me.user.displayName}
               userId={me.user.id}
-              avatarVersion={me.user.avatarVersion}
+              avatarVersion={
+                site.settings?.features.profilePhotos === false ? null : me.user.avatarVersion
+              }
               size="small"
             />
             <span>
               <strong>{me.user.displayName}</strong>
-              <small>{me.user.role === 'master' ? 'Master Admin' : 'University member'}</small>
+              <small>
+                {me.user.role === 'master'
+                  ? 'Master Admin'
+                  : me.canCreateClass
+                    ? 'Class Admin'
+                    : 'Student'}
+              </small>
             </span>
           </Link>
           <button
@@ -229,28 +274,36 @@ function AppShell() {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <Link className="mobile-brand" to="/">
-            <img src="/icons/xvia-icon.png" alt="" width="30" height="30" />
-            <strong>XVIA</strong>
+          <Link className="mobile-brand" to={homePath}>
+            <img src="/icons/zabsync-icon.png" alt="" width="32" height="32" />
+            <strong>
+              Zab<span className="brand-sync">Sync</span>
+            </strong>
           </Link>
-          <span className="campus-location">
-            <span className="green-dot" /> Islamabad campus
-          </span>
+          <div className="campus-location">
+            <span className="green-dot" />
+            Islamabad campus
+            <span className="campus-term">
+              {owner ? 'Owner administration' : 'Your everyday, organized.'}
+            </span>
+          </div>
           <div className="topbar-right">
-            <Link
-              className="icon-button topbar-search"
-              to="/search"
-              aria-label="Search your campus space"
-            >
-              <Search size={20} />
-            </Link>
-            {site.settings?.features.announcements !== false && (
+            {!owner && (
+              <Link
+                className="icon-button topbar-search"
+                to="/search"
+                aria-label="Search class content"
+              >
+                <Search size={21} />
+              </Link>
+            )}
+            {!owner && site.settings?.features.announcements === true && (
               <Link
                 className="icon-button notification-button"
                 to="/notifications"
                 aria-label={`Notifications${notifications.data?.unreadCount ? `, ${notifications.data.unreadCount} unread` : ''}`}
               >
-                <Bell size={20} />
+                <Bell size={21} />
                 {!!notifications.data?.unreadCount && (
                   <span className="unread-count">
                     {notifications.data.unreadCount > 99 ? '99+' : notifications.data.unreadCount}
@@ -258,7 +311,7 @@ function AppShell() {
                 )}
               </Link>
             )}
-            {me.user.role === 'master' && (
+            {owner && !auth.offline && (
               <Link
                 className="icon-button topbar-admin"
                 to="/admin"
@@ -267,19 +320,13 @@ function AppShell() {
                 <ShieldCheck size={21} />
               </Link>
             )}
-            <a
-              className="topbar-university"
-              href={auth.config?.universityUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              University website <ExternalLink size={14} />
-            </a>
             <Link to="/account" aria-label="Open your account">
               <Avatar
                 name={me.user.displayName}
                 userId={me.user.id}
-                avatarVersion={me.user.avatarVersion}
+                avatarVersion={
+                  site.settings?.features.profilePhotos === false ? null : me.user.avatarVersion
+                }
                 size="small"
               />
             </Link>
@@ -289,9 +336,7 @@ function AppShell() {
           <div className="demo-bar">
             <span>
               <strong>Local demo</strong>
-              <span className="demo-detail">
-                Fictional accounts · Your changes are saved locally
-              </span>
+              <span className="demo-detail">Fictional accounts · saved on this computer</span>
             </span>
             <label className="demo-role-label">
               <span>Explore as</span>
@@ -300,38 +345,45 @@ function AppShell() {
                 value={
                   me.user.role === 'master'
                     ? 'master'
-                    : me.user.email.includes('.gr@')
-                      ? 'gr'
-                      : me.user.email.includes('.cr@')
-                        ? 'cr'
-                        : 'student'
+                    : me.user.id === '00000000-0000-4000-8000-000000000002'
+                      ? 'admin'
+                      : 'student'
                 }
-                disabled={switching}
+                disabled={switching || auth.offline}
                 onChange={async (e) => {
-                  const role = e.target.value as Persona;
+                  const persona = e.target.value as Persona;
                   setSwitching(true);
                   try {
-                    await auth.demoLogin(role);
+                    await auth.demoLogin(persona);
                     navigate('/');
-                  } catch (error) {
-                    toast(errorMessage(error));
+                  } catch (e) {
+                    toast(errorMessage(e));
                   } finally {
                     setSwitching(false);
                   }
                 }}
               >
                 <option value="student">Student</option>
-                <option value="cr">CR</option>
-                <option value="gr">GR</option>
+                <option value="admin">Class Admin</option>
                 <option value="master">Master Admin</option>
               </select>
             </label>
           </div>
         )}
-        {!online && (
+        {auth.offline && (
           <div className="offline-banner" role="status">
             <WifiOff size={18} />
-            You’re offline. Reconnect to load class data or make changes.
+            <span>
+              Offline · showing saved content
+              {auth.lastSyncedAt
+                ? ` from ${new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Karachi' }).format(new Date(auth.lastSyncedAt))}`
+                : ''}
+              . Changes need a connection.
+            </span>
+            <Link to="/offline">
+              Saved on device
+              <ArrowUpRight size={15} />
+            </Link>
           </div>
         )}
         <main id="main-content" className="page-content">
@@ -340,59 +392,122 @@ function AppShell() {
               <Wrench size={21} />
               <div>
                 <strong>
-                  {me.user.role === 'master'
-                    ? 'Maintenance is on · Owner controls remain available'
-                    : 'Read-only maintenance'}
+                  Read-only maintenance
+                  {me.user.role === 'master' ? ' · Owner controls remain available' : ''}
                 </strong>
                 <p>{site.settings.maintenance.message}</p>
               </div>
-              {me.user.role === 'master' && (
-                <Link className="text-button" to="/admin">
-                  Manage
-                  <ArrowUpRight size={16} />
-                </Link>
-              )}
             </div>
           )}
           {site.error && <ErrorNotice message={site.error} retry={site.reload} />}
           <InstallBanner />
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/classes" element={<ClassesPage />} />
+            <Route path="/" element={owner ? <Navigate to="/admin" replace /> : <Dashboard />} />
+            <Route
+              path="/classes"
+              element={owner ? <Navigate to="/admin" replace /> : <ClassesPage />}
+            />
             <Route
               path="/classes/:classId"
-              element={<ClassPage key={`${location.pathname}:${me.user.id}`} />}
+              element={
+                owner ? (
+                  <OwnerClassAlias />
+                ) : (
+                  <ClassPage key={`${location.pathname}:${me.user.id}`} />
+                )
+              }
             />
-            <Route path="/requests" element={<RequestsPage />} />
+            <Route
+              path="/timetable"
+              element={owner ? <Navigate to="/admin" replace /> : <PlanningPage />}
+            />
+            <Route
+              path="/deadlines"
+              element={owner ? <Navigate to="/admin" replace /> : <PlanningPage view="deadlines" />}
+            />
+            <Route
+              path="/requests"
+              element={owner ? <Navigate to="/admin" replace /> : <RequestsPage />}
+            />
             <Route path="/account" element={<ProfilePage />} />
             <Route path="/subjects/:subjectId" element={<SubjectPage key={location.pathname} />} />
-            <Route path="/announcements" element={<AnnouncementsPage />} />
+            <Route
+              path="/announcements"
+              element={
+                owner ? <Navigate to="/admin?tab=announcements" replace /> : <AnnouncementsPage />
+              }
+            />
             <Route
               path="/announcements/:id"
-              element={<AnnouncementPage key={location.pathname} />}
+              element={
+                owner ? <OwnerAnnouncementAlias /> : <AnnouncementPage key={location.pathname} />
+              }
             />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/saved" element={<SavedPage />} />
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="/tutor" element={<TutorPage />} />
-            <Route path="/install" element={<InstallPage />} />
-            <Route path="/more" element={<MorePage />} />
             <Route
-              path="/admin"
-              element={me.user.role === 'master' ? <AdminPage /> : <Navigate to="/" replace />}
+              path="/notifications"
+              element={
+                owner ? <Navigate to="/admin?tab=announcements" replace /> : <NotificationsPage />
+              }
             />
+            <Route
+              path="/saved"
+              element={owner ? <Navigate to="/admin" replace /> : <SavedPage />}
+            />
+            <Route
+              path="/search"
+              element={owner ? <Navigate to="/admin" replace /> : <SearchPage />}
+            />
+            <Route path="/install" element={<InstallPage />} />
+            <Route path="/developer" element={<DeveloperPage />} />
+            <Route
+              path="/offline"
+              element={owner ? <Navigate to="/admin" replace /> : <OfflinePage />}
+            />
+            <Route path="/more" element={<MorePage />} />
+            <Route path="/admin" element={owner ? <AdminPage /> : <Navigate to="/" replace />} />
+            <Route
+              path="/admin/classes/:classId"
+              element={
+                owner ? (
+                  <ClassPage key={`${location.pathname}:${me.user.id}`} ownerWorkspace />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
+            <Route
+              path="/admin/classes/:classId/timetable"
+              element={owner ? <PlanningPage /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/classes/:classId/deadlines"
+              element={owner ? <PlanningPage view="deadlines" /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/classes/:classId/subjects/:subjectId"
+              element={
+                owner ? <SubjectPage key={location.pathname} /> : <Navigate to="/" replace />
+              }
+            />
+            <Route
+              path="/admin/announcements/:id"
+              element={
+                owner ? <AnnouncementPage key={location.pathname} /> : <Navigate to="/" replace />
+              }
+            />
+            <Route path="/tutor" element={<Navigate to="/developer" replace />} />
             <Route
               path="*"
               element={
                 <EmptyState
                   title="This page isn’t here."
                   action={
-                    <Link className="button button-primary" to="/">
-                      Go to overview
+                    <Link className="button button-primary" to={homePath}>
+                      {owner ? 'Back to owner dashboard' : 'Back to Home'}
                     </Link>
                   }
                 >
-                  It may have moved, or the address may be incomplete.
+                  Check the address or return to your campus home.
                 </EmptyState>
               }
             />
@@ -400,13 +515,16 @@ function AppShell() {
         </main>
         <footer className="workspace-footer">
           <span>
-            XVIA <span className="footer-divider">/</span> Node Compass Task
+            <strong>ZabSync</strong> · Built for Students. Designed for Success
           </span>
-          <span>SZABIST Islamabad</span>
+          <Link to="/developer">
+            Meet the Developer
+            <ArrowUpRight size={13} />
+          </Link>
         </footer>
       </div>
-      <nav className="mobile-nav mobile-nav-five" aria-label="Mobile navigation">
-        {mobileNav.map((item) => (
+      <nav className="mobile-nav mobile-nav-four" aria-label="Mobile navigation">
+        {mobile.map((item) => (
           <NavLink key={item.to} to={item.to} end={item.to === '/'}>
             <item.icon size={21} />
             <span>{item.label}</span>
@@ -416,56 +534,93 @@ function AppShell() {
     </div>
   );
 }
-
 function MorePage() {
   const auth = useAuth();
   const site = useSite();
+  const owner = isMaster(auth.me);
   const items = [
-    {
-      to: '/account',
-      title: 'My profile',
-      text: 'Your name, username, and photo',
-      icon: UserRound,
-    },
-    {
-      to: '/requests',
-      title: 'My requests',
-      text: 'Class creation and membership status',
-      icon: ClipboardList,
-    },
-    ...(site.settings?.features.tutor === false
-      ? []
-      : [{ to: '/tutor', title: 'Tutor', text: 'Meet your tutor and find support', icon: Users }]),
-    {
-      to: '/install',
-      title: 'Get XVIA',
-      text: 'Install on your phone or share the web link',
-      icon: Smartphone,
-    },
-    {
-      to: '/search',
-      title: 'Search',
-      text: 'Find a lecture file or an announcement',
-      icon: Search,
-    },
-    ...(auth.me?.user.role === 'master'
+    ...(owner
       ? [
           {
             to: '/admin',
-            title: 'Master Admin',
-            text: 'Your app controls in one dashboard',
+            title: 'Owner dashboard',
+            text: 'Semesters, sections, students and application controls',
             icon: ShieldCheck,
           },
         ]
+      : [
+          {
+            to: '/classes',
+            title: 'My classes',
+            text: 'Your section and subject spaces',
+            icon: BookOpen,
+          },
+          ...(site.settings?.features.deadlines === false
+            ? []
+            : [
+                {
+                  to: '/deadlines',
+                  title: 'Deadlines',
+                  text: 'Quizzes, assignments, and events',
+                  icon: CheckSquare2,
+                },
+              ]),
+          {
+            to: '/saved',
+            title: 'Saved items',
+            text: 'Bookmarked notices and resources',
+            icon: Bookmark,
+          },
+          {
+            to: '/offline',
+            title: 'Offline access',
+            text: 'Your timetable and files on this device',
+            icon: WifiOff,
+          },
+          {
+            to: '/account',
+            title: 'My profile',
+            text: 'Your name, username, and photo',
+            icon: UserRound,
+          },
+          {
+            to: '/requests',
+            title: 'Join requests',
+            text: 'Class membership status',
+            icon: ClipboardList,
+          },
+          { to: '/search', title: 'Search', text: 'Find a file or announcement', icon: Search },
+        ]),
+    {
+      to: '/developer',
+      title: 'Meet the Developer',
+      text: 'Introduction, updates, portfolio and other apps',
+      icon: Code2,
+    },
+    ...(owner
+      ? [
+          {
+            to: '/account',
+            title: 'My profile',
+            text: 'Your name, username and photo',
+            icon: UserRound,
+          },
+        ]
       : []),
+    {
+      to: '/install',
+      title: 'Get the App',
+      text: 'Home-screen installation and about ZabSync',
+      icon: Smartphone,
+    },
   ];
   return (
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">XVIA / YOUR CAMPUS</span>
-          <h1>Make it yours.</h1>
-          <p>Your profile, useful shortcuts, and a little help.</p>
+          <span className="eyebrow">YOUR ZABSYNC</span>
+          <h1>A little more, all in one place.</h1>
+          <p>Useful shortcuts, your profile, and help with the app.</p>
         </div>
       </div>
       <div className="more-grid">
@@ -482,6 +637,22 @@ function MorePage() {
           </Link>
         ))}
       </div>
+      <button className="button button-secondary mobile-signout" onClick={() => void auth.logout()}>
+        <LogOut size={17} />
+        Sign out
+      </button>
     </>
   );
+}
+
+function OwnerClassAlias() {
+  const { classId = '' } = useParams();
+  const location = useLocation();
+  return (
+    <Navigate to={`/admin/classes/${encodeURIComponent(classId)}${location.search}`} replace />
+  );
+}
+function OwnerAnnouncementAlias() {
+  const { id = '' } = useParams();
+  return <Navigate to={`/admin/announcements/${encodeURIComponent(id)}`} replace />;
 }

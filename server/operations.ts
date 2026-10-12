@@ -50,6 +50,7 @@ const secureLink = z
   .max(2000)
   .refine((value) => {
     if (!value) return true;
+    if (/[\u0000-\u0020\u007f]/.test(value)) return false;
     try {
       const url = new URL(value);
       return url.protocol === 'https:' && !url.username && !url.password && !!url.hostname;
@@ -58,45 +59,57 @@ const secureLink = z
     }
   }, 'Use a complete HTTPS link or leave this field blank.');
 
-const tutorFields = z
+const developerApp = z
+  .object({
+    name: text(80).min(1),
+    description: text(1000),
+    url: secureLink.refine((value) => value.length > 0, 'Add an HTTPS link for this app.'),
+  })
+  .strict();
+
+const developerFields = z
   .object({
     published: z.boolean(),
     title: text(100),
     name: text(100),
     bio: text(4000),
-    subjects: z
-      .array(text(80).refine((value) => value.length > 0, 'Subject names cannot be empty.'))
-      .max(20),
-    contactLabel: text(80),
-    contactUrl: secureLink,
-    bookingUrl: secureLink,
+    portfolioUrl: secureLink,
+    updatesText: text(4000),
+    apps: z.array(developerApp).max(12),
   })
   .strict();
 
-export interface TutorProfile extends z.infer<typeof tutorFields> {
+export interface DeveloperProfile extends z.infer<typeof developerFields> {
   version: number;
   updatedAt: string;
 }
 
-function tutorRecord(row: SqlRow): TutorProfile {
+function developerRecord(row: SqlRow): DeveloperProfile {
   return {
     version: numberValue(row.version),
     published: row.published === 1,
     title: stringValue(row.title),
     name: stringValue(row.name),
     bio: stringValue(row.bio),
-    subjects: z.array(z.string()).parse(JSON.parse(stringValue(row.subjects_json))),
-    contactLabel: stringValue(row.contact_label),
-    contactUrl: stringValue(row.contact_url),
-    bookingUrl: stringValue(row.booking_url),
+    portfolioUrl: stringValue(row.portfolio_url),
+    updatesText: stringValue(row.updates_text),
+    apps: z
+      .array(developerApp)
+      .max(12)
+      .parse(JSON.parse(stringValue(row.apps_json))),
     updatedAt: stringValue(row.updated_at),
   };
 }
 
-async function getTutor(db: Database): Promise<TutorProfile> {
-  const row = await first(db, 'SELECT * FROM tutor_profile WHERE id = 1');
-  requireCondition(row, 503, 'tutor_unavailable', 'Tutor information is temporarily unavailable.');
-  return tutorRecord(row);
+async function getDeveloper(db: Database): Promise<DeveloperProfile> {
+  const row = await first(db, 'SELECT * FROM developer_profile WHERE id = 1');
+  requireCondition(
+    row,
+    503,
+    'developer_unavailable',
+    'Developer information is temporarily unavailable.',
+  );
+  return developerRecord(row);
 }
 
 function userId(request: FastifyRequest): string {
@@ -208,68 +221,85 @@ export function registerOperationsRoutes(app: FastifyInstance, context: Operatio
     });
   });
 
-  app.get('/api/admin/tutor', async (request) => {
+  app.get('/api/admin/developer', async (request) => {
     const actor = await authenticate(request);
     await requireMaster(db, actor);
-    return { tutor: await getTutor(db) };
+    return { developer: await getDeveloper(db) };
   });
 
-  app.patch('/api/admin/tutor', async (request) => {
+  app.patch('/api/admin/developer', async (request) => {
     const actor = await authenticate(request);
-    const input = tutorFields
+    const input = developerFields
       .partial()
       .extend({ version: z.number().int().positive() })
       .strict()
       .parse(request.body);
     return inWriteTransaction(db, async (tx) => {
       await requireMaster(tx, actor);
-      const current = await getTutor(tx);
+      const current = await getDeveloper(tx);
       requireCondition(
         current.version === input.version,
         409,
-        'tutor_changed',
-        'Tutor information has changed. Refresh before saving again.',
+        'developer_changed',
+        'Developer information has changed. Refresh before saving again.',
       );
       const { version: _version, ...changes } = input;
       const next = { ...current, ...changes };
       requireCondition(
         !next.published || (next.title.length > 0 && next.name.length > 0 && next.bio.length > 0),
         400,
-        'tutor_incomplete',
-        'Add a title, tutor name, and biography before publishing.',
+        'developer_incomplete',
+        'Add a title, name, and biography before publishing.',
       );
       const stamp = now();
       await tx.execute({
-        sql: 'UPDATE tutor_profile SET version = version + 1,published = ?,title = ?,name = ?,bio = ?,subjects_json = ?,contact_label = ?,contact_url = ?,booking_url = ?,updated_at = ? WHERE id = 1',
+        sql: 'UPDATE developer_profile SET version=version+1,published=?,title=?,name=?,bio=?,portfolio_url=?,updates_text=?,apps_json=?,updated_at=? WHERE id=1',
         args: [
           next.published ? 1 : 0,
           next.title,
           next.name,
           next.bio,
-          JSON.stringify(next.subjects),
-          next.contactLabel,
-          next.contactUrl,
-          next.bookingUrl,
+          next.portfolioUrl,
+          next.updatesText,
+          JSON.stringify(next.apps),
           stamp.toISOString(),
         ],
       });
       await audit(
         tx,
         actor.id,
-        next.published ? 'tutor.published' : 'tutor.saved_draft',
-        'tutor',
+        next.published ? 'developer.published' : 'developer.saved_draft',
+        'developer',
         stamp,
       );
-      return { tutor: await getTutor(tx) };
+      return { developer: await getDeveloper(tx) };
     });
   });
 
+  app.get('/api/developer', async (request) => {
+    await authenticate(request);
+    await requireFeature(db, 'developer');
+    const developer = await getDeveloper(db);
+    return { developer: developer.published ? developer : null };
+  });
+
+  // Old Tutor content is retained only in the legacy database table. The old API
+  // cannot accidentally expose or publish it after the application's scope changes.
   app.get('/api/tutor', async (request) => {
     await authenticate(request);
-    await requireFeature(db, 'tutor');
-    const tutor = await getTutor(db);
-    return { tutor: tutor.published ? tutor : null };
+    requireCondition(false, 410, 'feature_retired', 'The Tutor feature has been retired.');
   });
+  for (const method of ['GET', 'PATCH'] as const) {
+    app.route({
+      method,
+      url: '/api/admin/tutor',
+      handler: async (request) => {
+        const actor = await authenticate(request);
+        await requireMaster(db, actor);
+        requireCondition(false, 410, 'feature_retired', 'The Tutor feature has been retired.');
+      },
+    });
+  }
 
   app.patch('/api/admin/users/:id/status', async (request) => {
     const actor = await authenticate(request);

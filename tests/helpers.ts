@@ -43,7 +43,7 @@ export async function createTestApp(
 
 export async function demoToken(
   app: TestApp,
-  persona: 'student' | 'cr' | 'gr' | 'master',
+  persona: 'student' | 'admin' | 'master',
 ): Promise<string> {
   const response = await app.inject({
     method: 'POST',

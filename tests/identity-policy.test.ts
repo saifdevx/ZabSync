@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertUniversityIdentity, type VerifiedIdentity } from '../server/auth.js';
+import {
+  assertUniversityIdentity,
+  universityRollNumber,
+  type VerifiedIdentity,
+} from '../server/auth.js';
 import { ALLOWED_EMAIL_DOMAIN, loadConfig, makeTestConfig } from '../server/config.js';
 import { createTestApp } from './helpers.js';
 
@@ -64,15 +68,32 @@ test('identity requires an immutable provider UID and an email address', () => {
   });
 });
 
-test('owner email has no example bootstrap default and must use the exact university domain', () => {
+test('owner bootstrap has no default and an external address requires its exact pinned Firebase UID', () => {
   assert.equal(loadConfig({}).masterAdminEmail, null);
+  assert.equal(loadConfig({}).masterAdminUid, null);
   assert.equal(
     loadConfig({ MASTER_ADMIN_EMAIL: 'OWNER@SZABIST-ISB.PK' }).masterAdminEmail,
     'owner@szabist-isb.pk',
   );
   assert.throws(
     () => loadConfig({ MASTER_ADMIN_EMAIL: 'owner@szabist-isb.pk.attacker.example' }),
+    /MASTER_ADMIN_UID/,
+  );
+  assert.throws(() => loadConfig({ MASTER_ADMIN_EMAIL: 'owner@gmail.com' }), /MASTER_ADMIN_UID/);
+  const external = loadConfig({
+    MASTER_ADMIN_EMAIL: 'OWNER@GMAIL.COM',
+    MASTER_ADMIN_UID: 'private-firebase-owner-uid',
+  });
+  assert.equal(external.masterAdminEmail, 'owner@gmail.com');
+  assert.equal(external.masterAdminUid, 'private-firebase-owner-uid');
+  assert.throws(() => loadConfig({ MASTER_ADMIN_UID: 'uid-without-email' }), /MASTER_ADMIN_EMAIL/);
+  assert.throws(
+    () => loadConfig({ MASTER_ADMIN_EMAIL: '*@gmail.com', MASTER_ADMIN_UID: 'some-uid' }),
     /MASTER_ADMIN_EMAIL/,
+  );
+  assert.throws(
+    () => loadConfig({ MASTER_ADMIN_EMAIL: 'owner@gmail.com', MASTER_ADMIN_UID: 'x'.repeat(129) }),
+    /MASTER_ADMIN_UID/,
   );
 });
 
@@ -116,4 +137,21 @@ test('the test token-verifier seam is forbidden in a production application', as
       }),
     /test|inject|verifier/i,
   );
+});
+
+test('roll numbers are display metadata derived only from a numeric exact-domain mailbox', () => {
+  assert.equal(universityRollNumber('2412339@szabist-isb.pk'), '2412339');
+  assert.equal(universityRollNumber('0012345@SZABIST-ISB.PK'), '0012345');
+  for (const email of [
+    'lecturer.ahmed@szabist-isb.pk',
+    'student@szabist-isb.pk',
+    '2412339@gmail.com',
+    '2412339@sub.szabist-isb.pk',
+    '2412339@szabist-isb.pk.attacker.example',
+    '2412339@szabist-isb.pk@',
+    '2412339@szabist-isb.pk@@',
+    '2412339',
+  ]) {
+    assert.equal(universityRollNumber(email), null, email);
+  }
 });

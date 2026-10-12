@@ -3,198 +3,41 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import test from 'node:test';
-import { JSDOM } from 'jsdom';
 import { DEMO_CLASS_ID, DEMO_USERS } from '../server/demo.js';
 import { createPrivateStorage } from '../server/storage.js';
-import { createTestApp } from './helpers.js';
-
-type TransportCall = {
-  method: string;
-  url: string;
-  contentType: string;
-  payload?: Record<string, unknown>;
-  status: number;
-  response?: Record<string, any>;
-};
+import { renderApplication } from './ui-harness.js';
 
 test(
-  'rendered checkpoint 2 workflow shares class notices, saves them, publishes a tutor, and customizes a student profile',
+  'rendered academic and profile workflows retain real sharing, saved items, private developer drafts and multipart photos',
   { timeout: 45_000 },
   async (t) => {
-    const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-      url: 'http://localhost:5173',
-      pretendToBeVisual: true,
-    });
-    const descriptors = new Map<string, PropertyDescriptor | undefined>();
-    const installGlobal = (key: string, value: unknown) => {
-      descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
-    };
-    const NativeRequest = Request;
-    const NativeResponse = Response;
-    const NativeFile = File;
-    for (const [key, value] of Object.entries({
-      window: dom.window,
-      self: dom.window,
-      document: dom.window.document,
-      navigator: dom.window.navigator,
-      sessionStorage: dom.window.sessionStorage,
-      localStorage: dom.window.localStorage,
-      HTMLElement: dom.window.HTMLElement,
-      HTMLInputElement: dom.window.HTMLInputElement,
-      HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
-      HTMLDialogElement: dom.window.HTMLDialogElement,
-      Node: dom.window.Node,
-      Event: dom.window.Event,
-      CustomEvent: dom.window.CustomEvent,
-      MouseEvent: dom.window.MouseEvent,
-      MutationObserver: dom.window.MutationObserver,
-      getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
-      IS_REACT_ACT_ENVIRONMENT: true,
-    }))
-      installGlobal(key, value);
-
-    // jsdom lacks dialog top-layer layout. Preserve open/close semantics, without claiming
-    // browser rendering or native focus validation. FormData/Request/Blob stay native so
-    // the actual profile upload goes through real multipart serialization and decoding.
-    Object.defineProperties(dom.window.HTMLDialogElement.prototype, {
-      showModal: {
-        configurable: true,
-        value(this: HTMLDialogElement) {
-          this.open = true;
-        },
-      },
-      close: {
-        configurable: true,
-        value(this: HTMLDialogElement) {
-          this.open = false;
-        },
-      },
-    });
-    dom.window.scrollTo = () => undefined;
-    let cleanupReact: () => void = () => undefined;
-    t.after(() => {
-      cleanupReact();
-      dom.window.close();
-      for (const [key, descriptor] of descriptors) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-        else Reflect.deleteProperty(globalThis, key);
-      }
-    });
-
-    const privateDirectory = await mkdtemp(
+    const directory = await mkdtemp(
       join(fileURLToPath(new URL('.', import.meta.url)), '.ui-storage-'),
     );
-    const app = await createTestApp(t, {
-      storage: createPrivateStorage({ driver: 'local', localDirectory: privateDirectory }),
+    t.after(async () => rm(directory, { recursive: true, force: true }));
+    const ui = await renderApplication(t, {
+      appOptions: { storage: createPrivateStorage({ driver: 'local', localDirectory: directory }) },
     });
-    t.after(async () => rm(privateDirectory, { recursive: true, force: true }));
-    const calls: TransportCall[] = [];
-    installGlobal('fetch', (async (input, init = {}) => {
-      const path =
-        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      const url = new URL(path, dom.window.location.href);
-      assert.equal(
-        url.origin,
-        dom.window.location.origin,
-        'UI tests may not contact external services.',
-      );
-      assert.ok(url.pathname.startsWith('/api/'), 'UI transport accepts only the application API.');
-      const serialized = new NativeRequest(url, init);
-      const method = serialized.method as 'GET' | 'POST' | 'PATCH' | 'DELETE';
-      const headers = Object.fromEntries(new Headers(serialized.headers).entries());
-      headers.host = 'localhost:3001';
-      headers.origin = dom.window.location.origin;
-      const contentType = headers['content-type'] ?? '';
-      const bytes = serialized.body ? Buffer.from(await serialized.arrayBuffer()) : undefined;
-      const result = await app.inject({
-        method,
-        url: `${url.pathname}${url.search}`,
-        headers,
-        ...(bytes ? { payload: bytes } : {}),
-      });
-      const json = String(result.headers['content-type'] ?? '').includes('application/json');
-      calls.push({
-        method,
-        url: `${url.pathname}${url.search}`,
-        contentType,
-        payload:
-          bytes && contentType.includes('application/json')
-            ? JSON.parse(bytes.toString())
-            : undefined,
-        status: result.statusCode,
-        response: json ? result.json() : undefined,
-      });
-      return new NativeResponse(
-        result.statusCode === 204 ? null : new Uint8Array(result.rawPayload),
-        {
-          status: result.statusCode,
-          headers: {
-            'Content-Type': String(result.headers['content-type'] ?? 'application/octet-stream'),
-          },
-        },
-      );
-    }) satisfies typeof fetch);
-
-    const [React, router, testing, auth, components, application] = await Promise.all([
-      import('react'),
-      import('react-router-dom'),
-      import('@testing-library/react'),
-      import('../client/src/auth.js'),
-      import('../client/src/components.js'),
-      import('../client/src/App.js'),
-    ]);
-    const { render, screen, fireEvent, waitFor, within, configure } = testing;
-    cleanupReact = testing.cleanup;
-    configure({ asyncUtilTimeout: 5_000 });
-    render(
-      React.createElement(
-        router.MemoryRouter,
-        { initialEntries: ['/'] },
-        React.createElement(
-          auth.AuthProvider,
-          null,
-          React.createElement(
-            components.ToastProvider,
-            null,
-            React.createElement(application.default),
-          ),
-        ),
-      ),
-    );
-
-    const mainNavigation = () =>
-      within(screen.getByRole('navigation', { name: 'Main navigation' }));
-    const lastCall = (method: string, url: string) =>
-      [...calls].reverse().find((call) => call.method === method && call.url === url);
-    const switchRole = async (
-      persona: 'student' | 'cr' | 'master',
-      name = DEMO_USERS[persona].displayName.split(' ')[0],
-    ) => {
-      fireEvent.change(screen.getByRole('combobox', { name: 'Switch demo role' }), {
-        target: { value: persona },
-      });
-      await screen.findByRole('heading', {
-        level: 1,
-        name: new RegExp(`^Good (morning|afternoon|evening), ${name}\\.$`),
-      });
-      await waitFor(() =>
-        assert.equal(
-          (screen.getByRole('combobox', { name: 'Switch demo role' }) as HTMLSelectElement)
-            .disabled,
-          false,
-        ),
-      );
+    const {
+      screen,
+      fireEvent,
+      waitFor,
+      within,
+      mainNavigation,
+      switchRole,
+      lastCall,
+      calls,
+      NativeFile,
+      dom,
+    } = ui;
+    const openDeveloperEditor = async () => {
+      fireEvent.click(mainNavigation().getByRole('link', { name: 'Owner dashboard' }));
+      await screen.findByRole('heading', { level: 1, name: 'Your campus. Your control.' });
+      fireEvent.click(screen.getByRole('button', { name: 'Developer' }));
+      await screen.findByRole('heading', { name: 'Meet the Developer' });
     };
-    const openTutorEditor = async () => {
-      fireEvent.click(mainNavigation().getByRole('link', { name: 'Master Admin' }));
-      await screen.findByRole('heading', { level: 1, name: 'Master control room' });
-      fireEvent.click(screen.getByRole('button', { name: 'Settings & Tutor' }));
-      await screen.findByRole('heading', { name: 'Your tutor profile' });
-    };
-
-    // CR creates a real subject with the rendered subject form.
-    fireEvent.click(await screen.findByRole('button', { name: /^Class representative/ }));
+    // A class admin creates a real subject with the rendered subject form.
+    fireEvent.click(await screen.findByRole('button', { name: /^Class Admin/ }));
     await screen.findByRole('heading', {
       level: 1,
       name: /^Good (morning|afternoon|evening), Hamza\.$/,
@@ -223,7 +66,9 @@ test(
     fireEvent.click(within(subjectDialog).getByRole('radio', { name: 'teal' }));
     fireEvent.click(within(subjectDialog).getByRole('button', { name: 'Add subject' }));
     await screen.findByRole('link', { name: 'Operating Systems UI Lab' });
-    await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
+    await waitFor(() =>
+      assert.ok(screen.queryByRole('dialog') === null, 'The submitted dialog closes.'),
+    );
     const subjectCreate = lastCall('POST', `/api/classes/${DEMO_CLASS_ID}/subjects`);
     assert.equal(subjectCreate?.status, 201);
     assert.equal(subjectCreate.payload?.color, 'teal');
@@ -258,7 +103,9 @@ test(
       within(announcementDialog).getByRole('button', { name: 'Publish announcement' }),
     );
     await screen.findByRole('heading', { name: 'Class trip information' });
-    await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
+    await waitFor(() =>
+      assert.ok(screen.queryByRole('dialog') === null, 'The submitted dialog closes.'),
+    );
     const noticeCreate = lastCall('POST', '/api/announcements');
     assert.equal(noticeCreate?.status, 201);
     assert.equal(noticeCreate.payload?.scope, 'class');
@@ -278,14 +125,14 @@ test(
       within(notice).queryByRole('button', { name: /Edit announcement|Trash announcement/ }),
       null,
     );
-    assert.equal(screen.queryByRole('button', { name: 'Post announcement' }), null);
+    assert.ok(screen.queryByRole('button', { name: 'Post announcement' }) === null);
     fireEvent.click(within(notice).getByRole('button', { name: 'Save announcement' }));
     await within(notice).findByRole('button', { name: 'Unsave announcement' });
     assert.equal(
       lastCall('POST', `/api/bookmarks/announcement/${noticeId}`)?.response?.saved,
       true,
     );
-    fireEvent.click(mainNavigation().getByRole('link', { name: 'Saved for later' }));
+    fireEvent.click(mainNavigation().getByRole('link', { name: 'Saved items' }));
     await screen.findByRole('heading', { level: 1, name: 'Saved for later' });
     fireEvent.click(
       within(screen.getByRole('group', { name: 'Saved item type' })).getByRole('button', {
@@ -318,65 +165,115 @@ test(
     );
     fireEvent.click(await screen.findByRole('link', { name: 'Operating Systems UI Lab' }));
     await screen.findByRole('heading', { level: 1, name: 'Operating Systems UI Lab' });
-    assert.equal(screen.queryByRole('button', { name: 'Edit subject' }), null);
-    assert.equal(screen.queryByRole('button', { name: 'Add subject' }), null);
+    assert.ok(screen.queryByRole('button', { name: 'Edit subject' }) === null);
+    assert.ok(screen.queryByRole('button', { name: 'Add subject' }) === null);
 
-    // The owner saves a draft; students cannot see it until explicit publication.
-    fireEvent.click(mainNavigation().getByRole('link', { name: 'Tutor' }));
-    await screen.findByRole('heading', { name: 'Tutor details are on their way.' });
-    await switchRole('master');
-    await openTutorEditor();
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Example Tutor' } });
-    fireEvent.change(screen.getByLabelText('Title'), {
-      target: { value: 'Systems and database tutor' },
+    // The Developer introduction is private until the owner explicitly publishes it.
+    fireEvent.click(mainNavigation().getByRole('link', { name: 'Get the App' }));
+    await screen.findByRole('heading', { level: 1, name: 'Your campus, one tap away' });
+    fireEvent.click(screen.getByRole('link', { name: 'Open developer page' }));
+    await screen.findByRole('heading', { level: 1, name: 'Meet the Developer' });
+    await waitFor(() => assert.equal(lastCall('GET', '/api/developer')?.status, 200));
+    assert.equal(lastCall('GET', '/api/developer')?.response?.developer, null);
+    await screen.findByRole('heading', { name: 'An introduction is on its way.' });
+    await switchRole('master', 'ZabSync');
+    await openDeveloperEditor();
+    fireEvent.change(screen.getByLabelText('Your name'), {
+      target: { value: 'Example Developer' },
     });
-    fireEvent.change(screen.getByLabelText(/^About you/), {
-      target: { value: 'I help students understand operating systems and database design.' },
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Student developer' } });
+    fireEvent.change(screen.getByLabelText('Your introduction'), {
+      target: { value: 'I build practical tools that help students organize their classes.' },
     });
-    fireEvent.change(screen.getByLabelText(/^Subjects and support/), {
-      target: { value: 'Operating systems\nDatabase design' },
+    fireEvent.change(screen.getByLabelText('Portfolio link'), {
+      target: { value: 'https://example.org/portfolio' },
     });
-    fireEvent.change(screen.getByLabelText('Contact button label'), {
-      target: { value: 'Ask about tutoring' },
+    fireEvent.change(screen.getByLabelText('Updates from you'), {
+      target: { value: 'A new campus project is in progress.' },
     });
-    fireEvent.change(screen.getByLabelText('Contact link'), {
-      target: { value: 'https://example.org/tutor' },
+    fireEvent.click(screen.getByRole('button', { name: 'Add an app' }));
+    fireEvent.change(screen.getByLabelText('App name'), { target: { value: 'Study Helper' } });
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'A small project for organizing study sessions.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save tutor draft' }));
-    await screen.findByText('Tutor draft saved. Students cannot see it yet.');
+    fireEvent.change(screen.getByLabelText('App link'), {
+      target: { value: 'https://example.org/study-helper' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save developer draft' }));
+    await screen.findByText('Developer draft saved.');
     await waitFor(() =>
       assert.equal(
-        (screen.getByRole('button', { name: 'Save tutor draft' }) as HTMLButtonElement).disabled,
+        (screen.getByRole('button', { name: 'Save developer draft' }) as HTMLButtonElement)
+          .disabled,
         true,
       ),
     );
-    const draftSave = lastCall('PATCH', '/api/admin/tutor');
-    assert.equal(draftSave?.status, 200);
-    assert.equal(draftSave.response?.tutor.published, false);
-    assert.deepEqual(draftSave.response?.tutor.subjects, ['Operating systems', 'Database design']);
+    const draft = lastCall('PATCH', '/api/admin/developer');
+    assert.equal(draft?.status, 200);
+    assert.equal(draft.response?.developer.published, false);
+    assert.deepEqual(draft.response?.developer.apps, [
+      {
+        name: 'Study Helper',
+        description: 'A small project for organizing study sessions.',
+        url: 'https://example.org/study-helper',
+      },
+    ]);
+    const beforePrivateRead = calls.length;
     await switchRole('student', 'Areeba');
-    fireEvent.click(mainNavigation().getByRole('link', { name: 'Tutor' }));
-    await screen.findByRole('heading', { name: 'Tutor details are on their way.' });
-    assert.equal(screen.queryByRole('heading', { name: 'Example Tutor' }), null);
-    assert.equal(lastCall('GET', '/api/tutor')?.response?.tutor, null);
-    await switchRole('master');
-    await openTutorEditor();
-    assert.equal((screen.getByLabelText('Name') as HTMLInputElement).value, 'Example Tutor');
-    fireEvent.click(screen.getByRole('switch', { name: 'Publish tutor profile' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save & publish profile' }));
-    await screen.findByText('Tutor profile published.');
-    assert.equal(lastCall('PATCH', '/api/admin/tutor')?.response?.tutor.published, true);
-    await switchRole('student', 'Areeba');
-    fireEvent.click(mainNavigation().getByRole('link', { name: 'Tutor' }));
-    await screen.findByRole('heading', { name: 'Example Tutor' });
-    assert.ok(
-      screen.getByText('I help students understand operating systems and database design.'),
+    fireEvent.click(mainNavigation().getByRole('link', { name: 'Get the App' }));
+    await screen.findByRole('heading', { level: 1, name: 'Your campus, one tap away' });
+    fireEvent.click(screen.getByRole('link', { name: 'Open developer page' }));
+    await screen.findByRole('heading', { level: 1, name: 'Meet the Developer' });
+    await waitFor(() =>
+      assert.ok(
+        calls
+          .slice(beforePrivateRead)
+          .some(
+            (call) =>
+              call.method === 'GET' &&
+              call.url === '/api/developer' &&
+              call.response?.developer === null,
+          ),
+      ),
     );
-    const contact = screen.getByRole('link', { name: 'Ask about tutoring' });
-    assert.equal(contact.getAttribute('href'), 'https://example.org/tutor');
-    assert.equal(contact.getAttribute('target'), '_blank');
-    assert.equal(screen.queryByRole('button', { name: /Save.*profile/ }), null);
-
+    await screen.findByRole('heading', { name: 'An introduction is on its way.' });
+    assert.ok(screen.queryByRole('heading', { name: 'Example Developer' }) === null);
+    await switchRole('master', 'ZabSync');
+    await openDeveloperEditor();
+    assert.equal(
+      (screen.getByLabelText('Your name') as HTMLInputElement).value,
+      'Example Developer',
+    );
+    fireEvent.click(screen.getByRole('switch', { name: 'Publish developer details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & publish profile' }));
+    await screen.findByText('Developer details published.');
+    assert.equal(lastCall('PATCH', '/api/admin/developer')?.response?.developer.published, true);
+    await switchRole('student', 'Areeba');
+    fireEvent.click(mainNavigation().getByRole('link', { name: 'Get the App' }));
+    await screen.findByRole('heading', { level: 1, name: 'Your campus, one tap away' });
+    fireEvent.click(screen.getByRole('link', { name: 'Open developer page' }));
+    await screen.findByRole('heading', { level: 1, name: 'Meet the Developer' });
+    const disclosure = (await screen.findByRole('heading', { name: 'Example Developer' })).closest(
+      '.developer-profile-page',
+    );
+    assert.ok(disclosure, 'The published introduction is visible directly on its own page.');
+    await within(disclosure).findByRole('heading', { name: 'Example Developer' });
+    assert.ok(
+      within(disclosure).getByText(
+        'I build practical tools that help students organize their classes.',
+      ),
+    );
+    assert.ok(within(disclosure).getByText('A new campus project is in progress.'));
+    const portfolio = within(disclosure).getByRole('link', { name: 'Portfolio' });
+    assert.equal(portfolio.getAttribute('href'), 'https://example.org/portfolio');
+    assert.equal(portfolio.getAttribute('target'), '_blank');
+    assert.equal(
+      within(disclosure)
+        .getByRole('link', { name: /Study Helper/ })
+        .getAttribute('href'),
+      'https://example.org/study-helper',
+    );
+    assert.ok(screen.queryByRole('button', { name: /Save.*profile/ }) === null);
     // Profile customization retains the verified identity and uses the real upload stack.
     fireEvent.click(screen.getByRole('link', { name: 'Open your account' }));
     await screen.findByRole('heading', { level: 1, name: 'Make yourself at home' });
@@ -391,7 +288,9 @@ test(
     assert.equal(profileSave.response?.user.email, DEMO_USERS.student.email);
     assert.equal(profileSave.response?.user.role, 'student');
     assert.ok(screen.getByText('@areeba_ui'));
-    const image = await readFile(new URL('../client/public/icons/xvia-icon.png', import.meta.url));
+    const image = await readFile(
+      new URL('../client/public/icons/zabsync-icon.png', import.meta.url),
+    );
     const photo = new NativeFile([new Uint8Array(image)], 'profile.png', { type: 'image/png' });
     fireEvent.change(screen.getByLabelText('Choose a profile photo'), {
       target: { files: [photo] },
@@ -420,12 +319,8 @@ test(
     await screen.findByText('Profile photo removed.');
     assert.equal(lastCall('DELETE', '/api/me/avatar')?.response?.user.avatarVersion, null);
     await waitFor(() =>
-      assert.equal(dom.window.document.querySelector('.ops-profile-avatar img'), null),
+      assert.ok(dom.window.document.querySelector('.ops-profile-avatar img') === null),
     );
-    assert.equal(
-      calls.filter((call) => call.status >= 400).length,
-      0,
-      JSON.stringify(calls.filter((call) => call.status >= 400)),
-    );
+    ui.assertNoApiErrors();
   },
 );

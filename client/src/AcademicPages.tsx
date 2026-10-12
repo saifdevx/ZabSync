@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowRight,
@@ -41,6 +41,8 @@ import {
 } from './components';
 import { contentChanged, queryString, useApi, useDebounced } from './hooks';
 import { useSite } from './site';
+import { OfflineSaveButton } from './OfflinePage';
+import { canManageAcademic, isMaster } from './permissions';
 import type {
   Announcement,
   AnnouncementListData,
@@ -53,6 +55,24 @@ import type {
 } from './academic-types';
 
 const SUBJECT_COLORS: SubjectColor[] = ['blue', 'teal', 'purple', 'amber', 'rose'];
+function useAcademicPermission(classId?: string | null, global = false) {
+  const auth = useAuth(),
+    site = useSite(),
+    location = useLocation();
+  const ownerContext = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
+  return (
+    (!!classId || global) &&
+    canManageAcademic(auth.me, classId, {
+      offline: auth.offline,
+      maintenance: site.settings?.maintenance.enabled === true,
+      ownerContext,
+    }) &&
+    (!global || isMaster(auth.me))
+  );
+}
+function subjectPath(owner: boolean, classId: string, subjectId: string) {
+  return owner ? `/admin/classes/${classId}/subjects/${subjectId}` : `/subjects/${subjectId}`;
+}
 export function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   return bytes < 1024 * 1024
@@ -135,13 +155,20 @@ export function SaveButton({
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(item.saved);
   useEffect(() => setSaved(item.saved), [item.saved, item.id]);
+  if (isMaster(auth.me)) return null;
   return (
     <button
       className={`icon-button save-button ${saved ? 'is-saved' : ''}`}
       aria-label={`${saved ? 'Unsave' : 'Save'} ${kind}`}
       aria-pressed={saved}
-      disabled={busy}
-      title={saved ? 'Remove from saved' : 'Save for later'}
+      disabled={busy || auth.offline}
+      title={
+        auth.offline
+          ? 'Reconnect to change bookmarks'
+          : saved
+            ? 'Remove from saved'
+            : 'Save for later'
+      }
       onClick={async () => {
         setBusy(true);
         try {
@@ -242,6 +269,7 @@ export function SubjectForm({
 }) {
   const auth = useAuth();
   const toast = useToast();
+  const canManage = useAcademicPermission(classId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
@@ -251,6 +279,7 @@ export function SubjectForm({
     description: initial?.description ?? '',
     color: initial?.color ?? ('blue' as SubjectColor),
   });
+  if (!canManage) return null;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -358,7 +387,7 @@ export function SubjectForm({
 
 export function SubjectsPanel({
   classId,
-  canManage,
+  canManage: allowedByParent,
   deleted = false,
 }: {
   classId: string;
@@ -368,6 +397,8 @@ export function SubjectsPanel({
   const site = useSite();
   const auth = useAuth();
   const toast = useToast();
+  const permission = useAcademicPermission(classId);
+  const canManage = allowedByParent === true && permission;
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
   const [create, setCreate] = useState(false);
@@ -390,7 +421,7 @@ export function SubjectsPanel({
               : 'Everything for a course, together in one place.'}
           </p>
         </div>
-        {canManage && !deleted && (
+        {canManage && !auth.offline && !deleted && (
           <button className="button button-primary" onClick={() => setCreate(true)}>
             <Plus size={17} />
             Add subject
@@ -425,7 +456,9 @@ export function SubjectsPanel({
                   <h3>{subject.name}</h3>
                 ) : (
                   <h3>
-                    <Link to={`/subjects/${subject.id}`}>{subject.name}</Link>
+                    <Link to={subjectPath(isMaster(auth.me), classId, subject.id)}>
+                      {subject.name}
+                    </Link>
                   </h3>
                 )}
                 <p className="subject-instructor">{subject.instructor || 'Instructor not added'}</p>
@@ -442,29 +475,34 @@ export function SubjectsPanel({
                     {subject.announcementCount} updates
                   </span>
                   {deleted ? (
-                    <button
-                      className="text-button"
-                      disabled={!!busy}
-                      onClick={async () => {
-                        setBusy(subject.id);
-                        try {
-                          await auth.request(`/subjects/${subject.id}/restore`, { method: 'POST' });
-                          state.reload();
-                          toast('Subject restored.');
-                          contentChanged();
-                        } catch (e) {
-                          toast(errorMessage(e));
-                        } finally {
-                          setBusy('');
-                        }
-                      }}
-                    >
-                      <RotateCcw size={16} />
-                      Restore
-                    </button>
+                    canManage &&
+                    subject.canManage === true && (
+                      <button
+                        className="text-button"
+                        disabled={!!busy}
+                        onClick={async () => {
+                          setBusy(subject.id);
+                          try {
+                            await auth.request(`/subjects/${subject.id}/restore`, {
+                              method: 'POST',
+                            });
+                            state.reload();
+                            toast('Subject restored.');
+                            contentChanged();
+                          } catch (e) {
+                            toast(errorMessage(e));
+                          } finally {
+                            setBusy('');
+                          }
+                        }}
+                      >
+                        <RotateCcw size={16} />
+                        Restore
+                      </button>
+                    )
                   ) : (
                     <Link
-                      to={`/subjects/${subject.id}`}
+                      to={subjectPath(isMaster(auth.me), classId, subject.id)}
                       aria-label={`Open ${subject.name}`}
                       className="subject-open"
                     >
@@ -495,11 +533,11 @@ export function SubjectsPanel({
                 ? 'Deleted subjects will appear here.'
                 : canManage
                   ? 'Add your first course above. You can choose a name, instructor, and color.'
-                  : 'Your CR or GR will add the courses for this class.'}
+                  : 'Your class admin will add the courses for this class.'}
           </EmptyState>
         </div>
       )}
-      {create && (
+      {create && canManage && (
         <SubjectForm
           classId={classId}
           onClose={() => setCreate(false)}
@@ -561,6 +599,7 @@ export function AnnouncementForm({
   );
   const [selectedSubject, setSelectedSubject] = useState(initial?.subjectId ?? subjectId ?? '');
   const [selectedClass] = useState(initial?.classId ?? classId ?? '');
+  const canManage = useAcademicPermission(selectedClass, scope === 'global');
   const [form, setForm] = useState({
     title: initial?.title ?? '',
     body: initial?.body ?? '',
@@ -582,6 +621,7 @@ export function AnnouncementForm({
       ? `/resources?${queryString({ classId: selectedClass, subjectId: scope === 'subject' ? selectedSubject : undefined, limit: 100 })}`
       : null,
   );
+  if (!canManage || site.settings?.features.announcements !== true) return null;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -789,6 +829,11 @@ export function AnnouncementCard({
 }) {
   const auth = useAuth();
   const toast = useToast();
+  const permission = useAcademicPermission(item.classId, item.scope === 'global');
+  const canManage = item.canManage === true && permission;
+  const detailPath = isMaster(auth.me)
+    ? `/admin/announcements/${item.id}`
+    : `/announcements/${item.id}`;
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -811,13 +856,7 @@ export function AnnouncementCard({
         </div>
       </div>
       <div className="announcement-heading">
-        <h3>
-          {full || deleted ? (
-            item.title
-          ) : (
-            <Link to={`/announcements/${item.id}`}>{item.title}</Link>
-          )}
-        </h3>
+        <h3>{full || deleted ? item.title : <Link to={detailPath}>{item.title}</Link>}</h3>
         {!deleted && <SaveButton kind="announcement" item={item} />}
       </div>
       <p className={`announcement-body ${full ? 'expanded' : ''}`}>{item.body}</p>
@@ -841,7 +880,7 @@ export function AnnouncementCard({
         </div>
         <div className="content-actions">
           {deleted ? (
-            item.canManage && (
+            canManage && (
               <button
                 className="button button-secondary button-small"
                 disabled={busy}
@@ -865,7 +904,7 @@ export function AnnouncementCard({
             )
           ) : (
             <>
-              {item.canManage && (
+              {canManage && (
                 <>
                   <button
                     className="icon-button"
@@ -884,7 +923,7 @@ export function AnnouncementCard({
                 </>
               )}
               {!full && (
-                <Link className="text-button" to={`/announcements/${item.id}`}>
+                <Link className="text-button" to={detailPath}>
                   Read more
                   <ChevronRight size={15} />
                 </Link>
@@ -893,7 +932,7 @@ export function AnnouncementCard({
           )}
         </div>
       </div>
-      {edit && (
+      {edit && canManage && (
         <AnnouncementForm
           initial={item}
           onClose={() => setEdit(false)}
@@ -903,10 +942,10 @@ export function AnnouncementCard({
           }}
         />
       )}
-      {remove && (
+      {remove && canManage && (
         <ConfirmChange
           title="Move this announcement to trash?"
-          message="It will disappear from student feeds. A representative with access can restore it from the recycle bin."
+          message="It will disappear from student feeds. A class admin with access can restore it from the recycle bin."
           path={`/announcements/${item.id}`}
           onClose={() => setRemove(false)}
           onDone={() => {
@@ -939,10 +978,13 @@ export function AnnouncementBoard({
   searchQuery?: string;
 }) {
   const site = useSite();
+  const auth = useAuth();
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
   const [create, setCreate] = useState(false);
   const [scope, setScope] = useState('');
+  const permission = useAcademicPermission(classId, globalOnly);
+  const canCreate = allowCreate === true && permission && !deleted && !saved;
   const q = useDebounced(searchQuery ?? query);
   const state = useApi<AnnouncementListData>(
     site.settings?.features.announcements === false
@@ -979,7 +1021,7 @@ export function AnnouncementBoard({
                   : 'Important updates without the group-chat scroll.'}
           </p>
         </div>
-        {allowCreate && !deleted && (
+        {canCreate && (
           <button className="button button-primary" onClick={() => setCreate(true)}>
             <Plus size={17} />
             Post announcement
@@ -1057,11 +1099,11 @@ export function AnnouncementBoard({
                 ? 'Tap the bookmark on an announcement to find it here later.'
                 : deleted
                   ? 'Announcements moved to trash will appear here.'
-                  : 'New updates from your representatives and the Master Admin will appear here.'}
+                  : 'New updates from your class admins and the Master Admin will appear here.'}
           </EmptyState>
         </div>
       )}
-      {create && (
+      {create && canCreate && (
         <AnnouncementForm
           classId={classId}
           subjectId={subjectId}
@@ -1145,6 +1187,7 @@ function ResourceForm({
   const auth = useAuth();
   const site = useSite();
   const toast = useToast();
+  const canManage = useAcademicPermission(classId);
   const [title, setTitle] = useState(initial?.title ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [selectedSubject, setSelectedSubject] = useState(subjectId ?? '');
@@ -1156,6 +1199,7 @@ function ResourceForm({
       ? `/classes/${classId}/subjects?limit=100`
       : null,
   );
+  if (!canManage || site.settings?.features.resources !== true) return null;
   return (
     <Modal
       wide
@@ -1308,6 +1352,8 @@ function ResourceCard({
 }) {
   const auth = useAuth();
   const toast = useToast();
+  const permission = useAcademicPermission(item.classId);
+  const canManage = item.canManage === true && permission;
   const [edit, setEdit] = useState(false);
   const [action, setAction] = useState<'trash' | 'purge' | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1337,42 +1383,45 @@ function ResourceCard({
       </div>
       <div className="resource-actions">
         {deleted ? (
-          <>
-            {item.storageState !== 'deleting' && (
+          canManage && (
+            <>
+              {item.storageState !== 'deleting' && (
+                <button
+                  className="button button-secondary button-small"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await auth.request(`/resources/${item.id}/restore`, { method: 'POST' });
+                      onChanged();
+                      contentChanged();
+                      toast('Resource restored.');
+                    } catch (e) {
+                      toast(errorMessage(e));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  <RotateCcw size={15} />
+                  Restore
+                </button>
+              )}
               <button
-                className="button button-secondary button-small"
+                className="button button-danger button-small"
                 disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  try {
-                    await auth.request(`/resources/${item.id}/restore`, { method: 'POST' });
-                    onChanged();
-                    contentChanged();
-                    toast('Resource restored.');
-                  } catch (e) {
-                    toast(errorMessage(e));
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
+                onClick={() => setAction('purge')}
               >
-                <RotateCcw size={15} />
-                Restore
+                <Trash2 size={15} />
+                {item.storageState === 'deleting' ? 'Retry removal' : 'Delete permanently'}
               </button>
-            )}
-            <button
-              className="button button-danger button-small"
-              disabled={busy}
-              onClick={() => setAction('purge')}
-            >
-              <Trash2 size={15} />
-              {item.storageState === 'deleting' ? 'Retry removal' : 'Delete permanently'}
-            </button>
-          </>
+            </>
+          )
         ) : (
           <>
             <ResourceDownload resource={item} />
-            {item.canManage && (
+            {!isMaster(auth.me) && <OfflineSaveButton resource={item} />}
+            {canManage && (
               <div className="content-actions">
                 <button
                   className="icon-button"
@@ -1393,7 +1442,7 @@ function ResourceCard({
           </>
         )}
       </div>
-      {edit && (
+      {edit && canManage && (
         <ResourceForm
           initial={item}
           classId={item.classId}
@@ -1404,7 +1453,7 @@ function ResourceCard({
           }}
         />
       )}
-      {action && (
+      {action && canManage && (
         <ConfirmChange
           title={action === 'purge' ? 'Permanently delete this file?' : 'Move this file to trash?'}
           message={
@@ -1430,7 +1479,7 @@ function ResourceCard({
 export function ResourcesPanel({
   classId,
   subjectId,
-  canManage = false,
+  canManage: allowedByParent = false,
   saved = false,
   deleted = false,
   searchQuery,
@@ -1443,6 +1492,9 @@ export function ResourcesPanel({
   searchQuery?: string;
 }) {
   const site = useSite();
+  const auth = useAuth();
+  const permission = useAcademicPermission(classId);
+  const canManage = allowedByParent === true && permission;
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
   const [create, setCreate] = useState(false);
@@ -1467,7 +1519,7 @@ export function ResourcesPanel({
                 : 'Lectures, slides, and instructions — organized by course.'}
           </p>
         </div>
-        {canManage && classId && !deleted && (
+        {canManage && !auth.offline && classId && !deleted && (
           <button className="button button-primary" onClick={() => setCreate(true)}>
             <UploadCloud size={17} />
             Upload resource
@@ -1485,7 +1537,7 @@ export function ResourcesPanel({
           onRefresh={state.reload}
         />
       )}
-      {canManage && state.data && classId && (
+      {canManage && !auth.offline && state.data && classId && (
         <div className="storage-meter">
           <span>
             {formatBytes(state.data.storageUsedBytes ?? 0)} of{' '}
@@ -1534,11 +1586,11 @@ export function ResourcesPanel({
                   ? 'Files you move to trash will appear here.'
                   : canManage
                     ? 'Upload a PDF or PowerPoint for your class.'
-                    : 'Your representatives will share lecture files here.'}
+                    : 'Your class admins will share lecture files here.'}
           </EmptyState>
         </div>
       )}
-      {create && classId && (
+      {create && canManage && classId && (
         <ResourceForm
           classId={classId}
           subjectId={subjectId}
@@ -1575,7 +1627,10 @@ export function TrashPanel({
   classId?: string;
   globalOnly?: boolean;
 }) {
+  const canManage = useAcademicPermission(classId, globalOnly);
   const [tab, setTab] = useState<'announcements' | 'resources' | 'subjects'>('announcements');
+  if (!canManage)
+    return <ErrorNotice message="Only an authorized class admin can open this recycle bin." />;
   return (
     <div className="trash-panel">
       <div className="subnav" role="group" aria-label="Recycle bin content">
@@ -1614,8 +1669,11 @@ export function TrashPanel({
 }
 
 export function SubjectPage() {
-  const { subjectId = '' } = useParams();
+  const { subjectId = '', classId: routeClassId } = useParams();
+  const auth = useAuth();
+  const location = useLocation();
   const state = useApi<{ subject: Subject }>(`/subjects/${encodeURIComponent(subjectId)}`);
+  const permission = useAcademicPermission(state.data?.subject.classId);
   const [tab, setTab] = useState<'announcements' | 'resources'>('announcements');
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
@@ -1623,17 +1681,24 @@ export function SubjectPage() {
   if (state.error || !state.data)
     return (
       <>
-        <Link className="back-link" to="/classes">
+        <Link className="back-link" to={isMaster(auth.me) ? '/admin' : '/classes'}>
           <ArrowLeft size={16} />
-          My classes
+          {isMaster(auth.me) ? 'Owner dashboard' : 'My classes'}
         </Link>
         <ErrorNotice message={state.error || 'This subject is unavailable.'} retry={state.reload} />
       </>
     );
   const subject = state.data.subject;
+  const owner = isMaster(auth.me);
+  if (owner && (!location.pathname.startsWith('/admin/') || routeClassId !== subject.classId))
+    return <Navigate to={subjectPath(true, subject.classId, subject.id)} replace />;
+  const canManage = subject.canManage === true && permission;
   return (
     <>
-      <Link className="back-link" to={`/classes/${subject.classId}`}>
+      <Link
+        className="back-link"
+        to={owner ? `/admin/classes/${subject.classId}` : `/classes/${subject.classId}`}
+      >
         <ArrowLeft size={16} />
         {subject.className}
       </Link>
@@ -1652,7 +1717,7 @@ export function SubjectPage() {
             <p className="subject-banner-description">{subject.description}</p>
           )}
         </div>
-        {subject.canManage && (
+        {canManage && (
           <div className="content-actions">
             <button className="button button-secondary button-small" onClick={() => setEdit(true)}>
               <Pencil size={16} />
@@ -1685,16 +1750,12 @@ export function SubjectPage() {
         <AnnouncementBoard
           classId={subject.classId}
           subjectId={subject.id}
-          allowCreate={subject.canManage}
+          allowCreate={canManage}
         />
       ) : (
-        <ResourcesPanel
-          classId={subject.classId}
-          subjectId={subject.id}
-          canManage={subject.canManage}
-        />
+        <ResourcesPanel classId={subject.classId} subjectId={subject.id} canManage={canManage} />
       )}
-      {edit && (
+      {edit && canManage && (
         <SubjectForm
           classId={subject.classId}
           initial={subject}
@@ -1705,7 +1766,7 @@ export function SubjectPage() {
           }}
         />
       )}
-      {remove && (
+      {remove && canManage && (
         <ConfirmChange
           title="Move this subject to trash?"
           message="Its resources and subject announcements will be hidden from students. You can restore the subject from the class recycle bin."
@@ -1723,12 +1784,23 @@ export function SubjectPage() {
 
 export function AnnouncementPage() {
   const { id = '' } = useParams();
+  const auth = useAuth();
+  const owner = isMaster(auth.me);
   const state = useApi<{ announcement: Announcement }>(`/announcements/${encodeURIComponent(id)}`);
   return (
     <>
-      <Link className="back-link" to="/announcements">
+      <Link
+        className="back-link"
+        to={
+          owner
+            ? state.data?.announcement.classId
+              ? `/admin/classes/${state.data.announcement.classId}`
+              : '/admin?tab=announcements'
+            : '/announcements'
+        }
+      >
         <ArrowLeft size={16} />
-        All announcements
+        {owner ? 'Back to owner announcements' : 'All announcements'}
       </Link>
       {state.loading ? (
         <Spinner label="Opening announcement…" />
@@ -1743,7 +1815,11 @@ export function AnnouncementPage() {
           {state.data.announcement.subjectId ? (
             <Link
               className="button button-secondary"
-              to={`/subjects/${state.data.announcement.subjectId}`}
+              to={subjectPath(
+                owner,
+                state.data.announcement.classId!,
+                state.data.announcement.subjectId,
+              )}
             >
               <BookOpen size={17} />
               Open subject
@@ -1751,7 +1827,7 @@ export function AnnouncementPage() {
           ) : state.data.announcement.classId ? (
             <Link
               className="button button-secondary"
-              to={`/classes/${state.data.announcement.classId}`}
+              to={`${owner ? '/admin' : ''}/classes/${state.data.announcement.classId}`}
             >
               <BookOpen size={17} />
               Open class
@@ -1892,7 +1968,7 @@ export function NotificationsPage() {
       >
         <button
           className="button button-secondary"
-          disabled={busy || !state.data?.unreadCount}
+          disabled={busy || auth.offline || !state.data?.unreadCount}
           onClick={() => void read()}
         >
           <CheckCheck size={17} />
@@ -1942,7 +2018,7 @@ export function NotificationsPage() {
                 <Link
                   to={`/announcements/${item.announcementId}`}
                   onClick={() => {
-                    if (!item.read)
+                    if (!item.read && !auth.offline)
                       void auth
                         .request(`/notifications/${item.id}/read`, { method: 'POST' })
                         .then(contentChanged)
@@ -1963,7 +2039,7 @@ export function NotificationsPage() {
                 {!item.read && (
                   <button
                     className="icon-button"
-                    disabled={busy}
+                    disabled={busy || auth.offline}
                     title="Mark as read"
                     aria-label={`Mark ${item.title} as read`}
                     onClick={() => void read(item.id)}

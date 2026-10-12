@@ -8,6 +8,7 @@ import {
   createDemoSession,
   hashSecret,
   publicUser,
+  universityRollNumber,
   type Clock,
   type CurrentUser,
 } from './auth.js';
@@ -92,6 +93,20 @@ export async function requireMaster(db: Database, actor: CurrentUser): Promise<v
   );
 }
 
+export async function canCreateClass(db: Database, actor: CurrentUser): Promise<boolean> {
+  const user = await first(db, "SELECT role FROM users WHERE id=? AND status='active'", [actor.id]);
+  if (!user) return false;
+  if (user.role === 'master') return true;
+  return Boolean(
+    await first(
+      db,
+      `SELECT m.id FROM memberships m JOIN classes c ON c.id=m.class_id
+    WHERE m.user_id=? AND m.role='admin' AND m.status='active' AND c.status='active' LIMIT 1`,
+      [actor.id],
+    ),
+  );
+}
+
 export async function classAccess(
   db: Database,
   actor: CurrentUser,
@@ -116,13 +131,13 @@ export async function classAccess(
   );
   // A pending request or knowledge of a class ID is not access to its contents.
   requireCondition(membership, 404, 'class_not_found', 'This class is not available to you.');
-  const role = stringValue(membership.role) as 'student' | 'cr' | 'gr';
+  const role = stringValue(membership.role) as 'student' | 'admin';
   if (manage)
     requireCondition(
-      role === 'cr' || role === 'gr',
+      role === 'admin',
       403,
-      'representative_required',
-      'Only this class’s representatives can do this.',
+      'admin_required',
+      'Only this class’s admins can do this.',
     );
   return { classroom, role };
 }
@@ -142,7 +157,7 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
 
   app.get('/api/health', async () => {
     await db.execute('SELECT 1');
-    return { status: 'ok', checkpoint: 2 };
+    return { status: 'ok', checkpoint: 3 };
   });
 
   app.get('/api/config', async () => ({
@@ -165,7 +180,7 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         'This endpoint is not available.',
       );
       const { persona } = z
-        .object({ persona: z.enum(['student', 'cr', 'gr', 'master']) })
+        .object({ persona: z.enum(['student', 'admin', 'master']) })
         .strict()
         .parse(request.body);
       return { token: await createDemoSession(db, DEMO_USERS[persona].id, now()) };
@@ -198,6 +213,7 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
     );
     return {
       user,
+      canCreateClass: await canCreateClass(db, user),
       classes: classRows.map((row) => ({
         ...classRecord(row),
         role: stringValue(row.role),
@@ -260,6 +276,8 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         'university',
         'szabist',
         'xvia',
+        'zabsync',
+        'developer',
         'node_compass_task',
         'nodecompasstask',
         'tutor',
@@ -317,58 +335,114 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
     });
   });
 
+  app.post('/api/class-requests', async (request) => {
+    await authenticate(request);
+    requireCondition(
+      false,
+      410,
+      'workflow_retired',
+      'Class approval requests have been retired. A class admin or the owner can create a class directly.',
+    );
+  });
+
+  app.get('/api/classes', async (request) => {
+    const user = await authenticate(request);
+    const { limit, offset } = pageSchema.parse(request.query);
+    const classRows = await rows(
+      db,
+      `SELECT c.*, m.role,
+       (SELECT COUNT(*) FROM memberships m2 JOIN users u2 ON u2.id=m2.user_id
+        WHERE m2.class_id=c.id AND m2.status='active' AND u2.status='active') AS member_count
+       FROM memberships m JOIN classes c ON c.id=m.class_id
+       WHERE m.user_id=? AND m.status='active' AND c.status='active'
+       ORDER BY c.name COLLATE NOCASE,c.id LIMIT ? OFFSET ?`,
+      [user.id, limit, offset],
+    );
+    const total = await first(
+      db,
+      `SELECT COUNT(*) AS count FROM memberships m JOIN classes c ON c.id=m.class_id
+       WHERE m.user_id=? AND m.status='active' AND c.status='active'`,
+      [user.id],
+    );
+    return {
+      classes: classRows.map((row) => ({
+        ...classRecord(row),
+        role: stringValue(row.role),
+        memberCount: numberValue(row.member_count),
+      })),
+      pagination: { limit, offset, total: numberValue(total?.count) },
+    };
+  });
+
   app.post(
-    '/api/class-requests',
+    '/api/classes',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const user = await authenticate(request);
       const form = classForm.parse(request.body);
-      const created = await inWriteTransaction(db, async (tx) => {
+      const classroom = await inWriteTransaction(db, async (tx) => {
         await requireWritable(tx, user);
-        const activeUser = await first(
-          tx,
-          "SELECT id FROM users WHERE id = ? AND status = 'active'",
-          [user.id],
-        );
-        requireCondition(activeUser, 403, 'account_suspended', 'This account is not active.');
-        const count = await first(
-          tx,
-          "SELECT COUNT(*) AS n FROM class_requests WHERE requester_id = ? AND status = 'pending'",
-          [user.id],
-        );
         requireCondition(
-          numberValue(count?.n) < 5,
-          429,
-          'request_limit',
-          'You already have five pending class requests. Wait for a review.',
+          await canCreateClass(tx, user),
+          403,
+          'class_creation_forbidden',
+          'Only an active class admin or the owner can create a class.',
         );
+        const creator = await first(tx, "SELECT role FROM users WHERE id=? AND status='active'", [
+          user.id,
+        ]);
+        const enrollCreator = creator?.role !== 'master';
         const duplicate = await first(
           tx,
-          `SELECT id FROM class_requests WHERE requester_id = ? AND status = 'pending' AND name = ? COLLATE NOCASE
-         AND program = ? COLLATE NOCASE AND semester = ? AND section = ? COLLATE NOCASE`,
+          `SELECT id FROM classes WHERE created_by=? AND status='active'
+        AND name=? COLLATE NOCASE AND program=? COLLATE NOCASE AND semester=? AND section=? COLLATE NOCASE`,
           [user.id, form.name, form.program, form.semester, form.section],
         );
-        requireCondition(!duplicate, 409, 'duplicate_request', 'You already requested this class.');
-        const id = randomUUID();
-        const stamp = now();
+        requireCondition(
+          !duplicate,
+          409,
+          'duplicate_class',
+          'You already created a class with these details.',
+        );
+        const id = randomUUID(),
+          stamp = now();
         await tx.execute({
-          sql: 'INSERT INTO class_requests(id,requester_id,name,program,semester,section,description,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+          sql: 'INSERT INTO classes(id,name,program,semester,section,description,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
           args: [
             id,
-            user.id,
             form.name,
             form.program,
             form.semester,
             form.section,
             form.description,
-            'pending',
+            user.id,
+            stamp.toISOString(),
             stamp.toISOString(),
           ],
         });
-        await audit(tx, user.id, 'class.requested', id, stamp);
-        return requestRecord((await first(tx, 'SELECT * FROM class_requests WHERE id = ?', [id]))!);
+        if (enrollCreator) {
+          await tx.execute({
+            sql: 'INSERT INTO memberships(id,class_id,user_id,role,status,created_at,updated_at,reviewed_by) VALUES (?,?,?,?,?,?,?,?)',
+            args: [
+              randomUUID(),
+              id,
+              user.id,
+              'admin',
+              'active',
+              stamp.toISOString(),
+              stamp.toISOString(),
+              user.id,
+            ],
+          });
+        }
+        await audit(tx, user.id, 'class.created', id, stamp, { enrolledCreator: enrollCreator });
+        return {
+          ...classRecord((await first(tx, 'SELECT * FROM classes WHERE id=?', [id]))!),
+          role: enrollCreator ? 'admin' : null,
+          memberCount: enrollCreator ? 1 : 0,
+        };
       });
-      return reply.code(201).send({ request: created });
+      return reply.code(201).send({ class: classroom });
     },
   );
 
@@ -392,10 +466,16 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         await requireWritable(tx, user);
         const activeUser = await first(
           tx,
-          "SELECT id FROM users WHERE id = ? AND status = 'active'",
+          "SELECT id,role FROM users WHERE id = ? AND status = 'active'",
           [user.id],
         );
         requireCondition(activeUser, 403, 'account_suspended', 'This account is not active.');
+        requireCondition(
+          activeUser.role !== 'master',
+          403,
+          'owner_membership_forbidden',
+          'Use your separate university account to join a class. The owner account manages classes from the Master console.',
+        );
         const stamp = now();
         const invite = await first(
           tx,
@@ -425,7 +505,7 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
             message:
               existing.status === 'active'
                 ? 'You already belong to this class.'
-                : 'Your request is awaiting representative approval.',
+                : 'Your request is awaiting class admin approval.',
           };
         }
         const id = existing ? stringValue(existing.id) : randomUUID();
@@ -452,7 +532,7 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         await audit(tx, user.id, 'membership.requested', id, stamp, { classId });
         return {
           membership: { id, classId, status: 'pending' },
-          message: 'Your request is awaiting representative approval.',
+          message: 'Your request is awaiting class admin approval.',
         };
       });
     },
@@ -478,8 +558,8 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
     let pendingMembersTotal = 0;
     const memberRows = await rows(
       db,
-      `SELECT m.user_id,m.role,m.status,u.display_name,u.username,u.avatar_version${manages ? ',u.email' : ''} FROM memberships m JOIN users u ON u.id = m.user_id
-       WHERE m.class_id = ? AND m.status = 'active' ORDER BY CASE m.role WHEN 'cr' THEN 0 WHEN 'gr' THEN 1 ELSE 2 END,u.display_name COLLATE NOCASE,u.id
+      `SELECT m.user_id,m.role,m.status,u.status AS account_status,u.display_name,u.username,u.avatar_version${manages ? ',u.email' : ''} FROM memberships m JOIN users u ON u.id = m.user_id
+       WHERE m.class_id = ? AND m.status = 'active' ORDER BY CASE m.role WHEN 'admin' THEN 0 ELSE 1 END,u.display_name COLLATE NOCASE,u.id
        LIMIT ? OFFSET ?`,
       [classId, page.limit, page.offset],
     );
@@ -490,12 +570,18 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
       avatarVersion: row.avatar_version ? stringValue(row.avatar_version) : null,
       role: stringValue(row.role),
       status: stringValue(row.status),
-      ...(manages ? { email: stringValue(row.email) } : {}),
+      accountStatus: stringValue(row.account_status),
+      ...(manages
+        ? {
+            email: stringValue(row.email),
+            rollNumber: universityRollNumber(stringValue(row.email)),
+          }
+        : {}),
     }));
     if (manages) {
       const pendingRows = await rows(
         db,
-        `SELECT m.id,m.user_id,m.created_at,u.email,u.display_name,u.username,u.avatar_version FROM memberships m JOIN users u ON u.id = m.user_id
+        `SELECT m.id,m.user_id,m.created_at,u.email,u.status AS account_status,u.display_name,u.username,u.avatar_version FROM memberships m JOIN users u ON u.id = m.user_id
          WHERE m.class_id = ? AND m.status = 'pending' ORDER BY m.created_at LIMIT ? OFFSET ?`,
         [classId, page.limit, page.offset],
       );
@@ -503,6 +589,8 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         id: stringValue(row.id),
         userId: stringValue(row.user_id),
         email: stringValue(row.email),
+        rollNumber: universityRollNumber(stringValue(row.email)),
+        accountStatus: stringValue(row.account_status),
         displayName: stringValue(row.display_name),
         username: row.username ? stringValue(row.username) : null,
         avatarVersion: row.avatar_version ? stringValue(row.avatar_version) : null,
@@ -604,7 +692,7 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
       await classAccess(tx, user, classId, true);
       const membership = await first(
         tx,
-        `SELECT m.*,u.status AS account_status FROM memberships m JOIN users u ON u.id = m.user_id
+        `SELECT m.*,u.status AS account_status,u.role AS global_role FROM memberships m JOIN users u ON u.id = m.user_id
          WHERE m.id = ? AND m.class_id = ?`,
         [membershipId, classId],
       );
@@ -620,13 +708,20 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         'already_reviewed',
         'This membership request has already been reviewed.',
       );
-      if (decision === 'approve')
+      if (decision === 'approve') {
         requireCondition(
           membership.account_status === 'active',
           409,
           'account_inactive',
           'This account is not active.',
         );
+        requireCondition(
+          membership.global_role !== 'master',
+          403,
+          'owner_membership_forbidden',
+          'The owner account cannot be enrolled. Use a separate university student account.',
+        );
+      }
       const status = decision === 'approve' ? 'active' : 'rejected';
       const stamp = now();
       await tx.execute({
@@ -665,15 +760,9 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         requireCondition(
           membership.role === 'student',
           403,
-          'representative_protected',
-          'Only the owner can change a representative’s membership.',
+          'admin_protected',
+          'Only the owner can change an admin’s membership.',
         );
-      requireCondition(
-        membership.role !== 'cr',
-        409,
-        'last_cr_required',
-        'Assign a replacement CR before removing the current CR.',
-      );
       const stamp = now();
       await tx.execute({
         sql: "UPDATE memberships SET role = 'student', status = 'removed', updated_at = ?, reviewed_by = ? WHERE id = ?",
@@ -693,8 +782,36 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
       classes: numberValue(
         (await first(db, "SELECT COUNT(*) AS n FROM classes WHERE status = 'active'"))?.n,
       ),
-      pendingRequests: numberValue(
-        (await first(db, "SELECT COUNT(*) AS n FROM class_requests WHERE status = 'pending'"))?.n,
+      activeUsers: numberValue(
+        (await first(db, "SELECT COUNT(*) AS n FROM users WHERE status='active'"))?.n,
+      ),
+      suspendedUsers: numberValue(
+        (await first(db, "SELECT COUNT(*) AS n FROM users WHERE status='suspended'"))?.n,
+      ),
+      semesters: numberValue(
+        (await first(db, "SELECT COUNT(DISTINCT semester) AS n FROM classes WHERE status='active'"))
+          ?.n,
+      ),
+      admins: numberValue(
+        (
+          await first(
+            db,
+            `SELECT COUNT(DISTINCT m.user_id) AS n FROM memberships m JOIN users u ON u.id=m.user_id JOIN classes c ON c.id=m.class_id
+        WHERE m.role='admin' AND m.status='active' AND u.status='active' AND c.status='active'`,
+          )
+        )?.n,
+      ),
+      pendingMemberships: numberValue(
+        (
+          await first(
+            db,
+            `SELECT COUNT(*) AS n FROM memberships m JOIN users u ON u.id=m.user_id JOIN classes c ON c.id=m.class_id
+        WHERE m.status='pending' AND u.status='active' AND c.status='active'`,
+          )
+        )?.n,
+      ),
+      legacyClassRequests: numberValue(
+        (await first(db, 'SELECT COUNT(*) AS n FROM class_requests'))?.n,
       ),
     };
     const requestRows = await rows(
@@ -710,7 +827,7 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
     );
     const classRows = await rows(
       db,
-      `SELECT c.*,(SELECT COUNT(*) FROM memberships m WHERE m.class_id = c.id AND m.status = 'active') AS member_count
+      `SELECT c.*,(SELECT COUNT(*) FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.class_id = c.id AND m.status = 'active' AND u.status='active') AS member_count
        FROM classes c WHERE c.status = 'active' ORDER BY c.created_at DESC,c.id LIMIT ? OFFSET ?`,
       [page.limit, page.offset],
     );
@@ -754,95 +871,153 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
     };
   });
 
-  app.post('/api/admin/class-requests/:id/decision', async (request) => {
-    const user = await authenticate(request);
-    const requestId = routeId(request);
-    const form = z
-      .object({
-        decision: z.enum(['approve', 'reject']),
-        note: z.string().trim().max(500).optional(),
-      })
+  app.get('/api/admin/semesters', async (request) => {
+    const actor = await authenticate(request);
+    await requireMaster(db, actor);
+    const semesterRows = await rows(
+      db,
+      `SELECT c.semester,COUNT(DISTINCT c.id) AS class_count,
+      COUNT(u.id) AS member_count,
+      COALESCE(SUM(CASE WHEN u.id IS NOT NULL AND m.role='student' THEN 1 ELSE 0 END),0) AS student_count,
+      COALESCE(SUM(CASE WHEN u.id IS NOT NULL AND m.role='admin' THEN 1 ELSE 0 END),0) AS admin_count
+      FROM classes c LEFT JOIN memberships m ON m.class_id=c.id AND m.status='active'
+      LEFT JOIN users u ON u.id=m.user_id AND u.status='active'
+      WHERE c.status='active' GROUP BY c.semester ORDER BY c.semester`,
+    );
+    const semesters = semesterRows.map((row) => ({
+      semester: numberValue(row.semester),
+      classCount: numberValue(row.class_count),
+      memberCount: numberValue(row.member_count),
+      studentCount: numberValue(row.student_count),
+      adminCount: numberValue(row.admin_count),
+    }));
+    const totals = semesters.reduce(
+      (total, semester) => ({
+        classCount: total.classCount + semester.classCount,
+        memberCount: total.memberCount + semester.memberCount,
+        studentCount: total.studentCount + semester.studentCount,
+        adminCount: total.adminCount + semester.adminCount,
+      }),
+      { classCount: 0, memberCount: 0, studentCount: 0, adminCount: 0 },
+    );
+    return { semesters, totals };
+  });
+
+  app.get('/api/admin/semesters/:semester/classes', async (request) => {
+    const actor = await authenticate(request);
+    await requireMaster(db, actor);
+    const semester = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(12)
+      .parse((request.params as Record<string, unknown>).semester);
+    const page = pageSchema.parse(request.query);
+    const classRows = await rows(
+      db,
+      `SELECT c.*,COUNT(u.id) AS member_count,
+      COALESCE(SUM(CASE WHEN u.id IS NOT NULL AND m.role='student' THEN 1 ELSE 0 END),0) AS student_count,
+      COALESCE(SUM(CASE WHEN u.id IS NOT NULL AND m.role='admin' THEN 1 ELSE 0 END),0) AS admin_count
+      FROM classes c LEFT JOIN memberships m ON m.class_id=c.id AND m.status='active'
+      LEFT JOIN users u ON u.id=m.user_id AND u.status='active'
+      WHERE c.status='active' AND c.semester=? GROUP BY c.id
+      ORDER BY c.section COLLATE NOCASE,c.name COLLATE NOCASE,c.id LIMIT ? OFFSET ?`,
+      [semester, page.limit, page.offset],
+    );
+    const total = numberValue(
+      (
+        await first(db, "SELECT COUNT(*) AS n FROM classes WHERE status='active' AND semester=?", [
+          semester,
+        ])
+      )?.n,
+    );
+    return {
+      semester,
+      classes: classRows.map((row) => ({
+        ...classRecord(row),
+        memberCount: numberValue(row.member_count),
+        studentCount: numberValue(row.student_count),
+        adminCount: numberValue(row.admin_count),
+      })),
+      pagination: { ...page, total },
+    };
+  });
+
+  app.post('/api/admin/classes/:id/members', async (request) => {
+    const actor = await authenticate(request);
+    const classId = routeId(request);
+    const { userId } = z
+      .object({ userId: z.string().min(1).max(128) })
       .strict()
       .parse(request.body);
     return inWriteTransaction(db, async (tx) => {
-      await requireMaster(tx, user);
-      const pending = await first(
-        tx,
-        'SELECT r.*,u.status AS account_status FROM class_requests r JOIN users u ON u.id = r.requester_id WHERE r.id = ?',
-        [requestId],
-      );
-      requireCondition(pending, 404, 'request_not_found', 'This class request was not found.');
+      await requireMaster(tx, actor);
+      await classAccess(tx, actor, classId, true);
+      const target = await first(tx, "SELECT id,role FROM users WHERE id=? AND status='active'", [
+        userId,
+      ]);
+      requireCondition(target, 404, 'user_not_found', 'Choose a registered, active account.');
       requireCondition(
-        pending.status === 'pending',
-        409,
-        'already_reviewed',
-        'This class request has already been reviewed.',
+        target.role !== 'master',
+        403,
+        'owner_membership_forbidden',
+        'The owner account cannot be enrolled. Choose a separate university student account.',
       );
+      const existing = await first(
+        tx,
+        'SELECT id,role,status FROM memberships WHERE class_id=? AND user_id=?',
+        [classId, userId],
+      );
+      if (existing?.status === 'active')
+        return {
+          membership: {
+            id: stringValue(existing.id),
+            userId,
+            classId,
+            role: stringValue(existing.role),
+            status: 'active',
+          },
+        };
+      const id = existing ? stringValue(existing.id) : randomUUID();
       const stamp = now();
-      let classId: string | null = null;
-      if (form.decision === 'approve') {
-        requireCondition(
-          pending.account_status === 'active',
-          409,
-          'account_inactive',
-          'The requester’s account is not active.',
-        );
-        classId = randomUUID();
+      if (existing) {
         await tx.execute({
-          sql: 'INSERT INTO classes(id,name,program,semester,section,description,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
-          args: [
-            classId,
-            pending.name,
-            pending.program,
-            pending.semester,
-            pending.section,
-            pending.description,
-            user.id,
-            stamp.toISOString(),
-            stamp.toISOString(),
-          ],
+          sql: "UPDATE memberships SET role='student',status='active',updated_at=?,reviewed_by=? WHERE id=?",
+          args: [stamp.toISOString(), actor.id, id],
         });
+      } else {
         await tx.execute({
-          sql: 'INSERT INTO memberships(id,class_id,user_id,role,status,created_at,updated_at,reviewed_by) VALUES (?,?,?,?,?,?,?,?)',
-          args: [
-            randomUUID(),
-            classId,
-            pending.requester_id,
-            'cr',
-            'active',
-            stamp.toISOString(),
-            stamp.toISOString(),
-            user.id,
-          ],
+          sql: "INSERT INTO memberships(id,class_id,user_id,role,status,created_at,updated_at,reviewed_by) VALUES (?,?,?,'student','active',?,?,?)",
+          args: [id, classId, userId, stamp.toISOString(), stamp.toISOString(), actor.id],
         });
       }
-      const status = form.decision === 'approve' ? 'approved' : 'rejected';
-      await tx.execute({
-        sql: 'UPDATE class_requests SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = ?, class_id = ? WHERE id = ?',
-        args: [status, form.note || null, user.id, stamp.toISOString(), classId, requestId],
-      });
-      await audit(tx, user.id, `class_request.${status}`, requestId, stamp, {
+      await audit(tx, actor.id, 'membership.added_by_owner', userId, stamp, {
         classId,
-        requesterId: pending.requester_id,
+        membershipId: id,
       });
-      return { requestId, status, classId };
+      return { membership: { id, userId, classId, role: 'student', status: 'active' } };
     });
   });
 
-  app.post('/api/admin/classes/:id/representatives', async (request) => {
-    const user = await authenticate(request);
+  app.patch('/api/admin/classes/:id/members/:userId/role', async (request) => {
+    const actor = await authenticate(request);
     const classId = routeId(request);
-    const { userId, role } = z
-      .object({ userId: z.string().min(1).max(128), role: z.enum(['cr', 'gr', 'student']) })
+    const userId = z
+      .string()
+      .min(1)
+      .max(128)
+      .parse((request.params as Record<string, unknown>).userId);
+    const { role } = z
+      .object({ role: z.enum(['student', 'admin']) })
       .strict()
       .parse(request.body);
     return inWriteTransaction(db, async (tx) => {
-      await requireMaster(tx, user);
-      await classAccess(tx, user, classId, true);
+      await requireMaster(tx, actor);
+      await classAccess(tx, actor, classId, true);
       const target = await first(
         tx,
-        `SELECT m.id,m.role FROM memberships m JOIN users u ON u.id = m.user_id
-         WHERE m.class_id = ? AND m.user_id = ? AND m.status = 'active' AND u.status = 'active'`,
+        `SELECT m.id,m.role,u.role AS global_role FROM memberships m JOIN users u ON u.id=m.user_id
+        WHERE m.class_id=? AND m.user_id=? AND m.status='active' AND u.status='active'`,
         [classId, userId],
       );
       requireCondition(
@@ -851,26 +1026,38 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
         'membership_not_found',
         'Choose an active member of this class.',
       );
-      if (target.role === role) return { userId, role, classId };
       requireCondition(
-        !(target.role === 'cr' && role !== 'cr'),
-        409,
-        'last_cr_required',
-        'Assign a replacement CR before changing the current CR’s role.',
+        target.global_role !== 'master',
+        403,
+        'owner_membership_forbidden',
+        'The owner account does not need a class role. Use a separate university student account.',
       );
+      if (target.role === role) return { userId, classId, role };
       const stamp = now();
-      if (role === 'cr' || role === 'gr') {
-        await tx.execute({
-          sql: "UPDATE memberships SET role = 'student', updated_at = ?, reviewed_by = ? WHERE class_id = ? AND role = ? AND status = 'active'",
-          args: [stamp.toISOString(), user.id, classId, role],
-        });
-      }
       await tx.execute({
-        sql: 'UPDATE memberships SET role = ?, updated_at = ?, reviewed_by = ? WHERE id = ?',
-        args: [role, stamp.toISOString(), user.id, target.id],
+        sql: 'UPDATE memberships SET role=?,updated_at=?,reviewed_by=? WHERE id=?',
+        args: [role, stamp.toISOString(), actor.id, target.id],
       });
-      await audit(tx, user.id, 'representative.assigned', userId, stamp, { classId, role });
-      return { userId, role, classId };
+      await audit(tx, actor.id, 'class_admin.role_updated', userId, stamp, { classId, role });
+      return { userId, classId, role };
     });
   });
+
+  // Historical approval records survive upgrades, but these old endpoints can no
+  // longer create classes or assign roles under the retired CR/GR policy.
+  for (const url of [
+    '/api/admin/class-requests/:id/decision',
+    '/api/admin/classes/:id/representatives',
+  ]) {
+    app.post(url, async (request) => {
+      const actor = await authenticate(request);
+      await requireMaster(db, actor);
+      requireCondition(
+        false,
+        410,
+        'workflow_retired',
+        'This approval workflow has been retired. Use class creation and class admin controls.',
+      );
+    });
+  }
 }

@@ -10,6 +10,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { academicMigration } from './academic-migration.js';
 import { operationsMigration } from './operations-migration.js';
+import { roleDeveloperMigration } from './role-developer-migration.js';
+import { timetableMigration } from './timetable-migration.js';
 
 export type Database = Pick<Client, 'execute'>;
 export type SqlRow = Row;
@@ -113,6 +115,8 @@ export async function migrate(db: Client): Promise<void> {
     for (const [version, statements] of [
       [3, academicMigration],
       [4, operationsMigration],
+      [5, roleDeveloperMigration],
+      [6, timetableMigration],
     ] as const) {
       const applied = await first(tx, 'SELECT version FROM schema_migrations WHERE version = ?', [
         version,

@@ -1,0 +1,625 @@
+/* Full-week planning: every day stays in the document at every screen size. */
+.weekly-planner {
+  container: weekly-plan / inline-size;
+}
+
+.weekly-planner .weekly-introduction {
+  margin: 8px 0 0;
+  color: #5c6d83;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.weekly-navigation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 24px 0 20px;
+  padding: 15px 0;
+  border-top: 1px solid #e6ebf2;
+  border-bottom: 1px solid #e6ebf2;
+}
+
+.weekly-range-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weekly-range-controls strong {
+  color: #213957;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.weekly-planner .weekly-range-controls .icon-button {
+  flex: 0 0 38px;
+  min-height: 38px;
+}
+
+.weekly-date-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #51647c;
+  font-size: 12px;
+}
+
+.weekly-date-picker input {
+  min-width: 0;
+  width: 145px;
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid #d6dfec;
+  border-radius: 9px;
+  background: #fff;
+  color: #263f5e;
+  font: inherit;
+}
+
+.weekly-timezone {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: #586e89;
+  font-size: 12px;
+}
+
+.weekly-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.weekly-day {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #e0e7f1;
+  border-radius: 15px;
+  background: #f6f8fc;
+}
+
+.weekly-day-today {
+  border-color: #6396ce;
+}
+
+.weekly-day-focused {
+  outline: 2px solid #397cbd;
+  outline-offset: 3px;
+}
+
+.weekly-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 15px;
+  border-bottom: 1px solid #e0e7f1;
+  background: #edf2f9;
+}
+
+.weekly-day-header h3 {
+  margin: 0 0 5px;
+  color: #263e5c;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.weekly-day-header h3:focus-visible {
+  outline: 2px solid #397cbd;
+  outline-offset: 4px;
+}
+
+.weekly-day-header time {
+  display: block;
+  color: #536984;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.weekly-day-today .weekly-day-header {
+  background: #e6f0ff;
+}
+
+.weekly-day-count,
+.weekly-today-label {
+  flex-shrink: 0;
+  color: #52667f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.weekly-today-label {
+  padding: 4px 7px;
+  border-radius: 7px;
+  background: #1b4d85;
+  color: #fff;
+  font-weight: 650;
+}
+
+.weekly-day-sessions {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px;
+}
+
+.weekly-session {
+  --session-accent: #1963ab;
+  --session-tint: #edf5ff;
+  display: grid;
+  grid-template-columns: minmax(74px, 86px) minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 13px;
+  border: 1px solid #dfe6ef;
+  border-left: 4px solid var(--session-accent);
+  border-radius: 11px;
+  background: #fff;
+  color: #213956;
+  box-shadow: 0 2px 5px rgb(32 55 85 / 3%);
+}
+
+.weekly-accent-violet {
+  --session-accent: #7752b5;
+  --session-tint: #f5f0fd;
+}
+
+.weekly-accent-teal {
+  --session-accent: #0c7f75;
+  --session-tint: #e9f7f4;
+}
+
+.weekly-accent-amber {
+  --session-accent: #9b6710;
+  --session-tint: #fff5e4;
+}
+
+.weekly-accent-rose {
+  --session-accent: #ad4567;
+  --session-tint: #fff0f5;
+}
+
+.weekly-session-time {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--session-accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekly-session-time > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.weekly-session-time > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.weekly-session-time time {
+  white-space: nowrap;
+}
+
+.weekly-session-time > div > span {
+  color: #8190a2;
+  line-height: 1;
+}
+
+.weekly-session-course {
+  min-width: 0;
+}
+
+.weekly-session h4 {
+  margin: 0;
+  color: #203958;
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.5;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.weekly-session-subject {
+  margin: 5px 0 0;
+  color: #5d6e86;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.weekly-status {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: #fff0db;
+  color: #805411;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.weekly-status-extra {
+  background: #e6f6ed;
+  color: #176d4a;
+}
+
+.weekly-status-cancelled {
+  background: #fcebed;
+  color: #963b4c;
+}
+
+.weekly-session-meta {
+  grid-column: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
+  min-width: 0;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid #edf0f5;
+}
+
+.weekly-session-meta dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--session-accent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.weekly-session-meta dt svg {
+  flex-shrink: 0;
+}
+
+.weekly-session-meta dd {
+  margin: 3px 0 0;
+  color: #334c6c;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.weekly-session-footnotes {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 9px;
+  border-top: 1px solid #edf0f5;
+}
+
+.weekly-session-footnotes p {
+  margin: 0;
+  color: #596d87;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.weekly-session-footnotes p + p {
+  margin-top: 8px;
+}
+
+.weekly-moved-link .text-button {
+  display: inline;
+  min-height: 28px;
+  padding: 3px 0;
+  font-size: inherit;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.weekly-moved-link svg {
+  display: inline;
+  vertical-align: middle;
+}
+
+.weekly-session-footnotes .weekly-overlap {
+  color: #845516;
+  font-weight: 600;
+}
+
+.weekly-session-cancelled {
+  border-left-color: #bb7785;
+  background: #fffafb;
+}
+
+.weekly-session-cancelled h4 {
+  color: #647084;
+  text-decoration: line-through;
+}
+
+.weekly-empty-day {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  min-height: 74px;
+  padding: 13px;
+  border: 1px dashed #d2dce9;
+  border-radius: 10px;
+  color: #647993;
+}
+
+.weekly-empty-day svg {
+  flex-shrink: 0;
+  color: #718da9;
+}
+
+.weekly-empty-day p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weekly-add-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 40px;
+  margin: 0 11px 11px;
+  padding: 8px;
+  border: 1px solid #d4dfed;
+  border-radius: 8px;
+  background: #fff;
+  color: #345b87;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.weekly-add-day:hover {
+  background: #ecf4ff;
+  border-color: #acc5e2;
+}
+
+.weekly-management {
+  margin-top: 22px;
+}
+
+.weekly-management .page-hint {
+  max-width: 80ch;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.weekly-management .planning-entry-row {
+  gap: 12px;
+  padding: 13px 0;
+}
+
+.weekly-management .planning-entry-row strong {
+  font-size: 13px;
+}
+
+.weekly-management .planning-entry-row span {
+  color: #58708c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weekly-management .minor-heading {
+  font-size: 14px;
+}
+
+.weekly-owner-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  border: 1px solid #dbe4ef;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.weekly-owner-context > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.weekly-owner-context strong,
+.weekly-owner-context span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.weekly-owner-context strong {
+  color: #1e395b;
+  font-size: 15px;
+}
+
+.weekly-owner-context span {
+  margin-top: 4px;
+  color: #5c718c;
+  font-size: 12px;
+}
+
+@container weekly-plan (min-width: 540px) and (max-width: 719px) {
+  .weekly-session {
+    grid-template-columns: 100px minmax(0, 1.2fr) minmax(120px, 1fr);
+  }
+
+  .weekly-session-meta {
+    grid-column: 3;
+    grid-row: 1;
+    padding-top: 0;
+    padding-left: 13px;
+    border-top: 0;
+    border-left: 1px solid #e1e8f1;
+  }
+}
+
+@container weekly-plan (min-width: 720px) and (max-width: 959px) {
+  .weekly-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container weekly-plan (min-width: 960px) {
+  .weekly-board {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .weekly-day-header {
+    flex-wrap: wrap;
+    gap: 7px;
+    padding: 12px 10px;
+    min-height: 89px;
+  }
+
+  .weekly-day-header h3 {
+    font-size: 13px;
+  }
+
+  .weekly-day-header time {
+    font-size: 11px;
+  }
+
+  .weekly-day-sessions {
+    padding: 7px;
+    gap: 8px;
+  }
+
+  .weekly-session {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 11px 9px;
+    gap: 11px;
+  }
+
+  .weekly-session-time {
+    align-items: flex-start;
+    padding: 7px 6px;
+    border-radius: 6px;
+    background: var(--session-tint);
+    font-size: 11px;
+  }
+
+  .weekly-session-time > div {
+    gap: 2px;
+  }
+
+  .weekly-session-time > div > span {
+    display: none;
+  }
+
+  .weekly-session h4 {
+    font-size: 13px;
+  }
+
+  .weekly-session-meta {
+    grid-column: 1;
+  }
+
+  .weekly-session-meta dd,
+  .weekly-session-subject,
+  .weekly-session-footnotes p {
+    font-size: 11px;
+  }
+
+  .weekly-empty-day {
+    flex-direction: column;
+    justify-content: center;
+    padding: 16px 6px;
+    text-align: center;
+    min-height: 118px;
+  }
+
+  .weekly-empty-day p {
+    font-size: 11px;
+  }
+
+  .weekly-add-day {
+    margin: 0 7px 8px;
+    font-size: 10px;
+  }
+}
+
+@container weekly-plan (max-width: 430px) {
+  .weekly-range-controls {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .weekly-range-controls strong {
+    font-size: 12px;
+  }
+
+  .weekly-navigation {
+    gap: 10px;
+  }
+
+  .weekly-date-picker {
+    flex: 1;
+    justify-content: flex-end;
+    font-size: 11px;
+  }
+
+  .weekly-date-picker input {
+    width: 128px;
+  }
+
+  .weekly-timezone {
+    flex-basis: 100%;
+    justify-content: center;
+    font-size: 11px;
+  }
+
+  .weekly-day-sessions {
+    padding: 9px;
+  }
+
+  .weekly-session {
+    gap: 10px;
+    padding: 13px 10px;
+  }
+
+  .weekly-session-time {
+    flex-direction: column;
+  }
+
+  .weekly-session-time > div {
+    gap: 4px;
+  }
+}
+
+@media print {
+  .weekly-navigation button,
+  .weekly-date-picker,
+  .weekly-add-day,
+  .weekly-management {
+    display: none;
+  }
+
+  .weekly-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .weekly-day,
+  .weekly-session {
+    break-inside: avoid;
+  }
+}

@@ -1,78 +1,52 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEMO_CLASS_ID, DEMO_USERS } from '../server/demo.js';
-import {
-  bearer,
-  createTestApp,
-  demoToken,
-  expectForbidden,
-  expectSuccess,
-  type TestApp,
-} from './helpers.js';
+import { bearer, createTestApp, demoToken, expectForbidden, expectSuccess } from './helpers.js';
 
 const requestedClass = {
   name: '6F Pilot Class',
   program: 'BS Computer Science',
   semester: 6,
   section: '6F',
-  description: 'A new class must be approved by the application owner.',
+  description: 'A class admin or owner can create a class directly.',
 };
 
-async function submitClassRequest(app: TestApp, token: string): Promise<string> {
-  const response = await app.inject({
+test('direct class creation keeps joining approval separate and class admin rights scoped', async (t) => {
+  const app = await createTestApp(t);
+  const requester = await demoToken(app, 'master');
+  const existingAdmin = await demoToken(app, 'admin');
+  const otherStudent = await demoToken(app, 'student');
+  const creation = await app.inject({
     method: 'POST',
-    url: '/api/class-requests',
-    headers: bearer(token),
+    url: '/api/classes',
+    headers: bearer(requester),
     payload: requestedClass,
   });
-  expectSuccess(response);
-  const body = response.json<{ request: { id: string; status: string } }>();
-  assert.equal(body.request.status, 'pending');
-  assert.ok(body.request.id);
-  return body.request.id;
-}
-
-test('class creation and joining require separate owner and representative approvals', async (t) => {
-  const app = await createTestApp(t);
-  const requester = await demoToken(app, 'student');
-  const master = await demoToken(app, 'master');
-  const existingCr = await demoToken(app, 'cr');
-  const otherStudent = await demoToken(app, 'gr');
-  const requestId = await submitClassRequest(app, requester);
-
-  for (const unauthorized of [requester, existingCr]) {
-    const selfApproval = await app.inject({
-      method: 'POST',
-      url: `/api/admin/class-requests/${requestId}/decision`,
-      headers: { ...bearer(unauthorized), 'x-role': 'master' },
-      payload: { decision: 'approve' },
-    });
-    expectForbidden(selfApproval);
-  }
-
-  const approval = await app.inject({
-    method: 'POST',
-    url: `/api/admin/class-requests/${requestId}/decision`,
-    headers: bearer(master),
-    payload: { decision: 'approve', note: 'Pilot approved for this integration test.' },
-  });
-  expectSuccess(approval);
-  const approved = approval.json<{ requestId: string; status: string; classId: string }>();
-  assert.equal(approved.requestId, requestId);
-  assert.equal(approved.status, 'approved');
-  assert.ok(approved.classId);
-  assert.notEqual(approved.classId, DEMO_CLASS_ID);
+  assert.equal(creation.statusCode, 201, creation.body);
+  const classroom = creation.json<{
+    class: { id: string; role: string | null; memberCount: number };
+  }>().class;
+  assert.equal(classroom.role, null, 'Owner creation must not create a class membership.');
+  assert.equal(classroom.memberCount, 0);
+  assert.notEqual(classroom.id, DEMO_CLASS_ID);
 
   const requesterClass = await app.inject({
     method: 'GET',
-    url: `/api/classes/${approved.classId}`,
+    url: `/api/classes/${classroom.id}`,
     headers: bearer(requester),
   });
   expectSuccess(requesterClass);
+  assert.equal(requesterClass.json().myRole, 'master');
+  assert.deepEqual(
+    (await app.inject({ method: 'GET', url: '/api/me', headers: bearer(requester) })).json()
+      .classes,
+    [],
+    'The fresh demo owner also stays outside student enrollment.',
+  );
 
   const invite = await app.inject({
     method: 'POST',
-    url: `/api/classes/${approved.classId}/invite`,
+    url: `/api/classes/${classroom.id}/invite`,
     headers: bearer(requester),
   });
   expectSuccess(invite);
@@ -81,27 +55,27 @@ test('class creation and joining require separate owner and representative appro
 
   const beforeJoin = await app.inject({
     method: 'GET',
-    url: `/api/classes/${approved.classId}`,
-    headers: bearer(existingCr),
+    url: `/api/classes/${classroom.id}`,
+    headers: bearer(existingAdmin),
   });
   expectForbidden(beforeJoin);
 
   const join = await app.inject({
     method: 'POST',
     url: '/api/join',
-    headers: bearer(existingCr),
+    headers: bearer(existingAdmin),
     payload: { code },
   });
   expectSuccess(join);
   const pending = join.json<{
     membership: { id: string; classId: string; status: string };
   }>().membership;
-  assert.equal(pending.classId, approved.classId);
+  assert.equal(pending.classId, classroom.id);
   assert.equal(pending.status, 'pending');
   const pendingHistory = await app.inject({
     method: 'GET',
     url: '/api/me',
-    headers: bearer(existingCr),
+    headers: bearer(existingAdmin),
   });
   expectSuccess(pendingHistory);
   const ownRequests = pendingHistory.json<{
@@ -113,15 +87,15 @@ test('class creation and joining require separate owner and representative appro
 
   const whilePending = await app.inject({
     method: 'GET',
-    url: `/api/classes/${approved.classId}`,
-    headers: bearer(existingCr),
+    url: `/api/classes/${classroom.id}`,
+    headers: bearer(existingAdmin),
   });
   expectForbidden(whilePending);
 
   const pendingSelfApproval = await app.inject({
     method: 'POST',
-    url: `/api/classes/${approved.classId}/memberships/${pending.id}/decision`,
-    headers: bearer(existingCr),
+    url: `/api/classes/${classroom.id}/memberships/${pending.id}/decision`,
+    headers: bearer(existingAdmin),
     payload: { decision: 'approve' },
   });
   expectForbidden(pendingSelfApproval);
@@ -131,14 +105,14 @@ test('class creation and joining require separate owner and representative appro
   const membershipMovedToOwnClass = await app.inject({
     method: 'POST',
     url: `/api/classes/${DEMO_CLASS_ID}/memberships/${pending.id}/decision`,
-    headers: bearer(existingCr),
+    headers: bearer(existingAdmin),
     payload: { decision: 'approve' },
   });
   expectForbidden(membershipMovedToOwnClass);
 
   const representativeView = await app.inject({
     method: 'GET',
-    url: `/api/classes/${approved.classId}`,
+    url: `/api/classes/${classroom.id}`,
     headers: bearer(requester),
   });
   expectSuccess(representativeView);
@@ -158,14 +132,14 @@ test('class creation and joining require separate owner and representative appro
   const secondMembershipId = secondJoin.json<{ membership: { id: string } }>().membership.id;
   const secondApproval = await app.inject({
     method: 'POST',
-    url: `/api/classes/${approved.classId}/memberships/${secondMembershipId}/decision`,
+    url: `/api/classes/${classroom.id}/memberships/${secondMembershipId}/decision`,
     headers: bearer(requester),
     payload: { decision: 'approve' },
   });
   expectSuccess(secondApproval);
   const ordinaryMemberWithPendingPeer = await app.inject({
     method: 'GET',
-    url: `/api/classes/${approved.classId}`,
+    url: `/api/classes/${classroom.id}`,
     headers: bearer(otherStudent),
   });
   expectSuccess(ordinaryMemberWithPendingPeer);
@@ -173,11 +147,11 @@ test('class creation and joining require separate owner and representative appro
     ordinaryMemberWithPendingPeer.json<{ pendingMembers: unknown[] }>().pendingMembers,
     [],
   );
-  assert.ok(!ordinaryMemberWithPendingPeer.body.includes(DEMO_USERS.cr.email));
+  assert.ok(!ordinaryMemberWithPendingPeer.body.includes(DEMO_USERS.admin.email));
 
   const membershipApproval = await app.inject({
     method: 'POST',
-    url: `/api/classes/${approved.classId}/memberships/${pending.id}/decision`,
+    url: `/api/classes/${classroom.id}/memberships/${pending.id}/decision`,
     headers: bearer(requester),
     payload: { decision: 'approve' },
   });
@@ -186,7 +160,7 @@ test('class creation and joining require separate owner and representative appro
   const approvedHistory = await app.inject({
     method: 'GET',
     url: '/api/me',
-    headers: bearer(existingCr),
+    headers: bearer(existingAdmin),
   });
   expectSuccess(approvedHistory);
   assert.equal(
@@ -198,8 +172,8 @@ test('class creation and joining require separate owner and representative appro
 
   const memberView = await app.inject({
     method: 'GET',
-    url: `/api/classes/${approved.classId}`,
-    headers: bearer(existingCr),
+    url: `/api/classes/${classroom.id}`,
+    headers: bearer(existingAdmin),
   });
   expectSuccess(memberView);
   const studentView = memberView.json<{
@@ -212,33 +186,33 @@ test('class creation and joining require separate owner and representative appro
   assert.deepEqual(studentView.pendingMembers, []);
   assert.equal(studentView.invite, null);
 
-  // Being a CR in 5D grants no editing role in the new class.
+  // Being an admin in 5D grants no editing role in the new class.
   const memberWrite = await app.inject({
     method: 'PATCH',
-    url: `/api/classes/${approved.classId}`,
-    headers: bearer(existingCr),
+    url: `/api/classes/${classroom.id}`,
+    headers: bearer(existingAdmin),
     payload: { ...requestedClass, name: 'Unauthorized class rename' },
   });
   expectForbidden(memberWrite);
 
   const representativeWrite = await app.inject({
     method: 'PATCH',
-    url: `/api/classes/${approved.classId}`,
+    url: `/api/classes/${classroom.id}`,
     headers: bearer(requester),
-    payload: { ...requestedClass, name: 'Approved representative rename' },
+    payload: { ...requestedClass, name: 'Authorized admin rename' },
   });
   expectSuccess(representativeWrite);
 
   const removeJoinedMember = await app.inject({
     method: 'DELETE',
-    url: `/api/classes/${approved.classId}/members/${DEMO_USERS.cr.id}`,
+    url: `/api/classes/${classroom.id}/members/${DEMO_USERS.admin.id}`,
     headers: bearer(requester),
   });
   expectSuccess(removeJoinedMember);
   const removedHistory = await app.inject({
     method: 'GET',
     url: '/api/me',
-    headers: bearer(existingCr),
+    headers: bearer(existingAdmin),
   });
   expectSuccess(removedHistory);
   assert.equal(
@@ -256,30 +230,94 @@ test('class creation and joining require separate owner and representative appro
   assert.deepEqual(
     requesterHistory.json<{ pendingMemberships: unknown[] }>().pendingMemberships,
     [],
-    'A master-approved class creator must not acquire a fictional join request.',
+    'A direct class creator must not acquire a fictional join request.',
   );
 });
 
-test('rejecting a class request does not grant its requester CR powers', async (t) => {
+test('only current class admins or the owner can create classes and retired approvals fail closed', async (t) => {
   const app = await createTestApp(t);
-  const requester = await demoToken(app, 'student');
+  const student = await demoToken(app, 'student');
+  const admin = await demoToken(app, 'admin');
   const master = await demoToken(app, 'master');
-  const requestId = await submitClassRequest(app, requester);
-
-  const rejected = await app.inject({
-    method: 'POST',
-    url: `/api/admin/class-requests/${requestId}/decision`,
-    headers: bearer(master),
-    payload: { decision: 'reject', note: 'Duplicate class request.' },
+  const studentBefore = await app.inject({
+    method: 'GET',
+    url: '/api/me',
+    headers: bearer(student),
   });
-  expectSuccess(rejected);
-  assert.equal(rejected.json<{ status: string }>().status, 'rejected');
-  assert.equal(rejected.json<{ classId?: string | null }>().classId ?? null, null);
-
-  const stillAStudent = await app.inject({
+  assert.equal(studentBefore.json().canCreateClass, false);
+  const blocked = await app.inject({
     method: 'POST',
-    url: `/api/classes/${DEMO_CLASS_ID}/invite`,
-    headers: bearer(requester),
+    url: '/api/classes',
+    headers: { ...bearer(student), 'x-role': 'admin' },
+    payload: requestedClass,
   });
-  expectForbidden(stillAStudent);
+  assert.equal(blocked.statusCode, 403, blocked.body);
+  for (const token of [student, admin, master]) {
+    const retired = await app.inject({
+      method: 'POST',
+      url: '/api/class-requests',
+      headers: bearer(token),
+      payload: requestedClass,
+    });
+    assert.equal(retired.statusCode, 410, retired.body);
+  }
+  for (const url of [
+    `/api/admin/class-requests/${DEMO_CLASS_ID}/decision`,
+    `/api/admin/classes/${DEMO_CLASS_ID}/representatives`,
+  ]) {
+    expectForbidden(
+      await app.inject({
+        method: 'POST',
+        url,
+        headers: bearer(student),
+        payload: { decision: 'approve' },
+      }),
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: 'POST',
+          url,
+          headers: bearer(master),
+          payload: { decision: 'approve' },
+        })
+      ).statusCode,
+      410,
+    );
+  }
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/classes',
+    headers: bearer(admin),
+    payload: requestedClass,
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const classId = created.json().class.id;
+  const detail = await app.inject({
+    method: 'GET',
+    url: `/api/classes/${classId}`,
+    headers: bearer(admin),
+  });
+  assert.equal(detail.json().myRole, 'admin');
+  assert.deepEqual(
+    detail
+      .json()
+      .members.map((member: { userId: string; role: string }) => [member.userId, member.role]),
+    [[DEMO_USERS.admin.id, 'admin']],
+  );
+  const adminProfile = await app.inject({ method: 'GET', url: '/api/me', headers: bearer(admin) });
+  assert.equal(adminProfile.json().canCreateClass, true);
+  assert.equal(adminProfile.json().user.role, 'student');
+  assert.deepEqual(adminProfile.json().classRequests, []);
+  expectForbidden(
+    await app.inject({ method: 'GET', url: '/api/admin/overview', headers: bearer(admin) }),
+  );
+  expectForbidden(
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/admin/classes/${classId}/members/${DEMO_USERS.admin.id}/role`,
+      headers: bearer(admin),
+      payload: { role: 'admin' },
+    }),
+  );
 });
