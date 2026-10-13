@@ -13,6 +13,11 @@ export const featureFlagsSchema = z
     profilePhotos: z.boolean(),
     timetable: z.boolean(),
     deadlines: z.boolean(),
+    chat: z.boolean(),
+    reminders: z.boolean(),
+    frontPage: z.boolean(),
+    cgpa: z.boolean(),
+    help: z.boolean(),
   })
   .strict();
 
@@ -36,7 +41,14 @@ export async function getSettings(db: Database): Promise<SiteSettings> {
   );
   let features: FeatureFlags;
   try {
-    features = featureFlagsSchema.parse(JSON.parse(stringValue(row.features_json)));
+    features = featureFlagsSchema.parse({
+      chat: true,
+      reminders: true,
+      frontPage: true,
+      cgpa: true,
+      help: true,
+      ...JSON.parse(stringValue(row.features_json)),
+    });
   } catch {
     throw new ApiError(
       503,

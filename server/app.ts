@@ -24,8 +24,26 @@ import { migrate, openDatabase } from './db.js';
 import { seedDemo as seedDemoDatabase } from './demo.js';
 import { ApiError } from './errors.js';
 import { registerRoutes } from './routes.js';
-import { createPrivateStorage, loadStorageConfig, type PrivateStorage } from './storage.js';
+import {
+  createPrivateStorage,
+  loadStorageConfig,
+  loadResourceLimits,
+  type PrivateStorage,
+} from './storage.js';
+import { loadDriveConfig } from './drive-config.js';
+import { createDriveService, createHybridStorage, registerDriveRoutes } from './drive.js';
+import { registerChatRoutes } from './chat.js';
+import {
+  createFirebasePushSender,
+  loadReminderOptions,
+  registerReminderRoutes,
+  startReminderRunner,
+  type ManagedPushSender,
+} from './reminders.js';
 import { registerOperationsRoutes } from './operations.js';
+import { registerOperationsHealth } from './operations-health.js';
+import { registerHelpRoutes } from './help.js';
+import { createHelpAssistant, loadHelpAiConfig } from './help-assistant.js';
 import { registerMaintenanceGate } from './site-settings.js';
 import { registerAcademicRoutes, seedAcademic } from './academic.js';
 
@@ -77,6 +95,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // Validate/create storage before opening an owned database. A storage configuration
   // failure must not leave a database handle or new SQLite file behind.
   const storageConfig = loadStorageConfig(config.nodeEnv === 'test' ? {} : process.env);
+  const resourceLimits = loadResourceLimits(config.nodeEnv === 'test' ? {} : process.env);
+  const driveConfig = loadDriveConfig(config, config.nodeEnv === 'test' ? {} : process.env);
+  const reminderOptions = loadReminderOptions(config.nodeEnv === 'test' ? {} : process.env, config);
+  const helpAiConfig = loadHelpAiConfig(config.nodeEnv === 'test' ? {} : process.env);
+  if (helpAiConfig.enabled && config.authMode === 'demo')
+    throw new Error(
+      'AI requires Firebase mode; keep HELP_AI_ENABLED=false for local demo accounts.',
+    );
   if (
     config.nodeEnv === 'test' &&
     config.databaseUrl.startsWith('file:') &&
@@ -90,7 +116,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   if (config.authMode === 'demo' && storageConfig.driver !== 'local') {
     throw new Error('Local demo mode requires local private file storage.');
   }
-  const storage = options.storage || createPrivateStorage(storageConfig);
+  const baseStorage = options.storage || createPrivateStorage(storageConfig);
+  let storage = baseStorage;
   let db: Client;
   try {
     db = options.db || (await openDatabase(config.databaseUrl, config.databaseAuthToken));
@@ -101,11 +128,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   const ownsDatabase = !options.db;
   let closeFirebase: (() => Promise<void>) | undefined;
   let verifyFirebaseToken = options.verifyFirebaseToken;
+  let stopReminders: (() => Promise<void>) | undefined;
+  let pushSender: ManagedPushSender | undefined;
   let resourcesClosed = false;
   const closeResources = async () => {
     if (resourcesClosed) return;
     resourcesClosed = true;
     try {
+      await stopReminders?.();
+      await pushSender?.close();
       if (closeFirebase) await closeFirebase();
     } finally {
       try {
@@ -121,11 +152,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     trustProxy: false,
     // Bounded JSON accommodates the advertised 10,000-character announcement limit, including Unicode.
     bodyLimit: 64 * 1024,
-    // Allow a bounded 25 MiB upload on a slower mobile connection.
-    requestTimeout: 120_000,
+    // Large files are streamed to bounded temporary storage, with a hard request timeout.
+    requestTimeout: 600_000,
   });
   try {
     await migrate(db);
+    const drive = createDriveService({ db, config: driveConfig, appConfig: config, now });
+    storage = createHybridStorage(baseStorage, drive);
     await ensureIdentityMode(db, config.authMode);
     if (config.authMode === 'demo' && options.seedDemo !== false) {
       await seedDemoDatabase(db, now());
@@ -234,20 +267,23 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     await app.register(cors, {
       origin: [...allowedOrigins],
       credentials: false,
-      methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Authorization', 'Content-Type'],
     });
     await app.register(helmet, {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
+          scriptSrc: ["'self'", ...(config.googleSignInEnabled ? ['https://apis.google.com'] : [])],
           styleSrc: ["'self'", "'unsafe-inline'"],
           connectSrc: [
             "'self'",
             'https://identitytoolkit.googleapis.com',
             'https://securetoken.googleapis.com',
             'https://www.googleapis.com',
+            'https://firebaseinstallations.googleapis.com',
+            'https://fcmregistrations.googleapis.com',
+            'https://fcm.googleapis.com',
           ],
           imgSrc: ["'self'", 'data:', 'blob:'],
           workerSrc: ["'self'"],
@@ -264,6 +300,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       },
       referrerPolicy: { policy: 'no-referrer' },
       crossOriginEmbedderPolicy: false,
+      crossOriginOpenerPolicy: {
+        policy: config.googleSignInEnabled ? 'same-origin-allow-popups' : 'same-origin',
+      },
     });
     // Only this request reuses its authentication result. Later requests always
     // recheck revocation/account state, so suspension and representative handover
@@ -333,7 +372,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     });
 
     await app.register(multipart, {
-      limits: { files: 1, fileSize: 25 * 1024 * 1024, fields: 8, fieldSize: 12000, parts: 9 },
+      limits: {
+        files: 1,
+        fileSize: resourceLimits.fileBytes,
+        fields: 8,
+        fieldSize: 12000,
+        parts: 9,
+      },
     });
     const context = {
       db,
@@ -348,6 +393,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     registerAcademicRoutes(app, context);
     registerTimetableRoutes(app, context);
     registerOfflineAccess(app, context);
+    registerDriveRoutes(app, context, drive, baseStorage);
+    registerChatRoutes(app, context);
+    registerReminderRoutes(app, context, reminderOptions);
+    registerOperationsHealth(app, context, reminderOptions);
+    registerHelpRoutes(app, context, {
+      assistant: createHelpAssistant({ db, config: helpAiConfig, appConfig: config, now }),
+    });
+    if (config.nodeEnv !== 'test') {
+      if (reminderOptions.pushEnabled) pushSender = createFirebasePushSender(config);
+      stopReminders = startReminderRunner(db, {
+        now,
+        pushSender,
+        onError: () => app.log.error('Reminder worker cycle failed.'),
+      });
+    }
 
     const staticRoot = options.staticRoot || resolve(process.cwd(), 'dist/client');
     const serveClient = await isDirectory(staticRoot);
@@ -359,6 +419,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       if (
         serveClient &&
         !pathname.startsWith('/api/') &&
+        !pathname.startsWith('/oauth/') &&
         pathname !== '/api' &&
         ['GET', 'HEAD'].includes(request.method)
       ) {

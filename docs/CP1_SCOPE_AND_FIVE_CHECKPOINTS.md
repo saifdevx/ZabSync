@@ -1,5 +1,8 @@
 # Five-checkpoint roadmap — current Checkpoint 3
 
+> Historical checkpoint reference. For version 0.4.0, the current requirements and routes in [SECTIONS_AND_SUBJECTS](SECTIONS_AND_SUBJECTS.md), [CHECKPOINT_4_GUIDE](CHECKPOINT_4_GUIDE.md) and [project context](../ZabSync_Project_Context.md) take precedence. Only the owner creates sections; student subject enrollment is restricted to one pinned section.
+
+
 The application is **ZabSync**, a reusable class workspace for SZABIST Islamabad. Each class configures its own name, program, semester, section, subjects, and content. There is no fixed eight-semester catalogue to maintain before students can use it.
 
 This is the third of **five cumulative checkpoints**. Each release contains the complete source ZIP, setup and upgrade guidance, and verification results. Use the new release in its own folder and follow its upgrade guide to preserve private configuration, database records, and uploaded files. Corrections remain within the same numbered checkpoint.

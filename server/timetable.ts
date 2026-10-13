@@ -15,6 +15,8 @@ import {
 import { DEMO_CLASS_ID, DEMO_USERS } from './demo.js';
 import { ApiError, requireCondition } from './errors.js';
 import { classAccess, routeId, type RouteContext } from './routes.js';
+import { subjectAccess } from './academic.js';
+import { subjectScopeSql } from './section-access.js';
 import { getSettings, requireFeature, requireWritable } from './site-settings.js';
 import {
   addCalendarDays,
@@ -110,6 +112,7 @@ const deadlinesQuery = z
     from: dateSchema.optional(),
     to: dateSchema.optional(),
     kind: z.enum(['quiz', 'assignment', 'event']).optional(),
+    subjectId: z.uuid().optional(),
     completed: boolQuery.optional(),
   })
   .strict();
@@ -296,6 +299,7 @@ async function loadDeadline(db: Database, actor: CurrentUser, id: string, manage
     id,
   ]);
   requireCondition(row, 404, 'deadline_not_found', 'This deadline is not available to you.');
+  if (row.subject_id) await subjectAccess(db, actor, stringValue(row.subject_id), manage);
   await classAccess(db, actor, stringValue(row.class_id), manage);
   await requireSubject(
     db,
@@ -494,6 +498,23 @@ export async function readDeadlineData(
     activeSubjectSql('d', flags.subjects),
   ];
   const args: InValue[] = [classId];
+  if (access.role === 'student') {
+    conditions.push(
+      `(d.subject_id IS NULL OR ${subjectScopeSql('d.class_id', 'd.subject_id', '?')})`,
+    );
+    args.push(actor.id);
+  }
+  if (query.subjectId) {
+    const subject = await subjectAccess(db, actor, query.subjectId);
+    requireCondition(
+      subject.classId === classId,
+      404,
+      'subject_not_found',
+      'This subject is not available in your section.',
+    );
+    conditions.push('d.subject_id=?');
+    args.push(query.subjectId);
+  }
   if (query.from) {
     conditions.push('d.due_date>=?');
     args.push(query.from);

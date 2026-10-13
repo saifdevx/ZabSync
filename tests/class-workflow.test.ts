@@ -1,323 +1,298 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEMO_CLASS_ID, DEMO_USERS } from '../server/demo.js';
-import { bearer, createTestApp, demoToken, expectForbidden, expectSuccess } from './helpers.js';
+import { makeTestConfig } from '../server/config.js';
+import { bearer, createTestApp, expectForbidden, expectSuccess } from './helpers.js';
 
-const requestedClass = {
-  name: '6F Pilot Class',
-  program: 'BS Computer Science',
-  semester: 6,
-  section: '6F',
-  description: 'A class admin or owner can create a class directly.',
-};
-
-test('direct class creation keeps joining approval separate and class admin rights scoped', async (t) => {
-  const app = await createTestApp(t);
-  const requester = await demoToken(app, 'master');
-  const existingAdmin = await demoToken(app, 'admin');
-  const otherStudent = await demoToken(app, 'student');
-  const creation = await app.inject({
-    method: 'POST',
-    url: '/api/classes',
-    headers: bearer(requester),
-    payload: requestedClass,
+async function setup(t: Parameters<typeof createTestApp>[0]) {
+  const app = await createTestApp(t, {
+    config: makeTestConfig({ authMode: 'firebase', masterAdminEmail: 'owner@szabist-isb.pk' }),
+    seedDemo: false,
+    verifyFirebaseToken: async (token) => ({
+      uid: token,
+      email: `${token}@szabist-isb.pk`,
+      email_verified: true,
+      name: token,
+    }),
   });
-  assert.equal(creation.statusCode, 201, creation.body);
-  const classroom = creation.json<{
-    class: { id: string; role: string | null; memberCount: number };
-  }>().class;
-  assert.equal(classroom.role, null, 'Owner creation must not create a class membership.');
-  assert.equal(classroom.memberCount, 0);
-  assert.notEqual(classroom.id, DEMO_CLASS_ID);
+  const call = (
+    token: string,
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE' | 'PUT',
+    url: string,
+    payload?: unknown,
+  ) =>
+    app.inject({
+      method,
+      url: `/api${url}`,
+      headers: bearer(token),
+      ...(payload === undefined ? {} : { payload: payload as never }),
+    });
+  for (const token of ['owner', 'admin-a', 'admin-b', 'student', 'peer'])
+    expectSuccess(await call(token, 'GET', '/me'));
+  const classes: string[] = [],
+    subjects: string[] = [],
+    codes: string[] = [];
+  for (const [index, section] of ['5D', '2B'].entries()) {
+    const c = await call('owner', 'POST', '/classes', {
+      name: section,
+      program: 'BS Computer Science',
+      semester: index ? 2 : 5,
+      section: section.slice(1),
+      description: '',
+    });
+    expectSuccess(c);
+    const id = c.json().class.id;
+    classes.push(id);
+    assert.equal(c.json().class.memberCount, 0);
+    const admin = index ? 'admin-b' : 'admin-a';
+    expectSuccess(await call('owner', 'POST', `/admin/classes/${id}/members`, { userId: admin }));
+    expectSuccess(
+      await call('owner', 'PATCH', `/admin/classes/${id}/members/${admin}/role`, { role: 'admin' }),
+    );
+    const s = await call(admin, 'POST', `/classes/${id}/subjects`, {
+      name: index ? 'Other section subject' : 'OS Lab',
+      code: 'CS501',
+    });
+    expectSuccess(s);
+    subjects.push(s.json().subject.id);
+    const invite = await call(admin, 'POST', `/subjects/${subjects[index]}/invite`);
+    expectSuccess(invite);
+    codes.push(invite.json().code);
+  }
+  return { app, call, classes, subjects, codes };
+}
 
-  const requesterClass = await app.inject({
-    method: 'GET',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(requester),
-  });
-  expectSuccess(requesterClass);
-  assert.equal(requesterClass.json().myRole, 'master');
-  assert.deepEqual(
-    (await app.inject({ method: 'GET', url: '/api/me', headers: bearer(requester) })).json()
-      .classes,
-    [],
-    'The fresh demo owner also stays outside student enrollment.',
+test('one approved section contains separately enrolled subjects; students cannot create or publish academic content', async (t) => {
+  const { call, classes, subjects, codes } = await setup(t),
+    classA = classes[0]!,
+    classB = classes[1]!,
+    subjectA = subjects[0]!;
+  for (const token of ['student', 'admin-a']) {
+    assert.equal((await call(token, 'GET', '/me')).json().canCreateClass, false);
+    expectForbidden(
+      await call(token, 'POST', '/classes', {
+        name: 'Unauthorized section',
+        program: 'BS CS',
+        semester: 7,
+        section: 'C',
+      }),
+    );
+  }
+  expectForbidden(
+    await call('student', 'POST', `/classes/${classA}/subjects`, { name: 'Unauthorized subject' }),
   );
-
-  const invite = await app.inject({
-    method: 'POST',
-    url: `/api/classes/${classroom.id}/invite`,
-    headers: bearer(requester),
+  const joined = await call('student', 'POST', '/subjects/join', { code: codes[0] });
+  expectSuccess(joined);
+  assert.equal(joined.json().membership.status, 'pending');
+  assert.equal((await call('student', 'GET', '/me')).json().classes.length, 0);
+  expectForbidden(await call('student', 'GET', `/subjects/${subjectA}`));
+  assert.equal(
+    (await call('student', 'POST', '/subjects/join', { code: codes[1] })).statusCode,
+    409,
+  );
+  const memberId = joined.json().membership.id;
+  expectForbidden(
+    await call('student', 'POST', `/classes/${classA}/memberships/${memberId}/decision`, {
+      decision: 'approve',
+    }),
+  );
+  expectForbidden(
+    await call('admin-b', 'POST', `/classes/${classA}/memberships/${memberId}/decision`, {
+      decision: 'approve',
+    }),
+  );
+  expectSuccess(
+    await call('admin-a', 'POST', `/classes/${classA}/memberships/${memberId}/decision`, {
+      decision: 'approve',
+    }),
+  );
+  const me = (await call('student', 'GET', '/me')).json();
+  assert.deepEqual(
+    me.classes.map((c: { id: string }) => c.id),
+    [classA],
+  );
+  assert.equal(me.section.classId, classA);
+  expectSuccess(await call('student', 'GET', `/subjects/${subjectA}`));
+  assert.equal(
+    (await call('student', 'POST', '/subjects/join', { code: codes[1] })).statusCode,
+    409,
+  );
+  expectForbidden(await call('student', 'GET', `/classes/${classB}`));
+  expectForbidden(
+    await call('admin-a', 'PATCH', `/admin/classes/${classA}/members/student/role`, {
+      role: 'admin',
+    }),
+  );
+  for (const payload of [
+    { scope: 'class', classId: classA, title: 'Unauthorized', body: 'No' },
+    { scope: 'subject', classId: classA, subjectId: subjectA, title: 'Unauthorized', body: 'No' },
+  ])
+    expectForbidden(await call('student', 'POST', '/announcements', payload));
+  const extra = await call('admin-a', 'POST', `/classes/${classA}/subjects`, {
+    name: 'Database Systems',
   });
+  expectSuccess(extra);
+  const dbId = extra.json().subject.id;
+  expectSuccess(
+    await call('admin-a', 'POST', '/announcements', {
+      scope: 'subject',
+      classId: classA,
+      subjectId: dbId,
+      title: 'Private DB notice',
+      body: 'Enrolled subject only.',
+    }),
+  );
+  const deadline = await call('admin-a', 'POST', `/classes/${classA}/deadlines`, {
+    subjectId: dbId,
+    kind: 'quiz',
+    title: 'Private DB quiz',
+    dueDate: '2027-01-20',
+    dueTime: '09:00',
+  });
+  expectSuccess(deadline);
+  const notice = (await call('student', 'GET', `/announcements?classId=${classA}`)).json();
+  assert.ok(!notice.announcements.some((a: { title: string }) => a.title === 'Private DB notice'));
+  assert.equal(
+    (await call('student', 'GET', `/classes/${classA}/subjects`)).json().subjects.length,
+    1,
+  );
+  assert.equal(
+    (await call('student', 'GET', `/classes/${classA}/deadlines`)).json().deadlines.length,
+    0,
+  );
+  expectForbidden(
+    await call('student', 'PATCH', `/deadlines/${deadline.json().deadline.id}/completion`, {
+      version: 1,
+      completed: true,
+    }),
+  );
+  expectForbidden(await call('student', 'GET', `/subjects/${dbId}`));
+  const invite = await call('admin-a', 'POST', `/subjects/${dbId}/invite`);
   expectSuccess(invite);
-  const { code } = invite.json<{ code: string }>();
-  assert.ok(code);
-
-  const beforeJoin = await app.inject({
-    method: 'GET',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(existingAdmin),
-  });
-  expectForbidden(beforeJoin);
-
-  const join = await app.inject({
-    method: 'POST',
-    url: '/api/join',
-    headers: bearer(existingAdmin),
-    payload: { code },
-  });
-  expectSuccess(join);
-  const pending = join.json<{
-    membership: { id: string; classId: string; status: string };
-  }>().membership;
-  assert.equal(pending.classId, classroom.id);
-  assert.equal(pending.status, 'pending');
-  const pendingHistory = await app.inject({
-    method: 'GET',
-    url: '/api/me',
-    headers: bearer(existingAdmin),
-  });
-  expectSuccess(pendingHistory);
-  const ownRequests = pendingHistory.json<{
-    pendingMemberships: { id: string; status: string }[];
-  }>().pendingMemberships;
-  assert.equal(ownRequests.length, 1, 'Seeded memberships must not appear as join requests.');
-  assert.equal(ownRequests[0]!.id, pending.id);
-  assert.equal(ownRequests[0]!.status, 'pending');
-
-  const whilePending = await app.inject({
-    method: 'GET',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(existingAdmin),
-  });
-  expectForbidden(whilePending);
-
-  const pendingSelfApproval = await app.inject({
-    method: 'POST',
-    url: `/api/classes/${classroom.id}/memberships/${pending.id}/decision`,
-    headers: bearer(existingAdmin),
-    payload: { decision: 'approve' },
-  });
-  expectForbidden(pendingSelfApproval);
-
-  // The membership identifier cannot be reused with a class the actor does
-  // administer. The URL's class and the membership's class must agree.
-  const membershipMovedToOwnClass = await app.inject({
-    method: 'POST',
-    url: `/api/classes/${DEMO_CLASS_ID}/memberships/${pending.id}/decision`,
-    headers: bearer(existingAdmin),
-    payload: { decision: 'approve' },
-  });
-  expectForbidden(membershipMovedToOwnClass);
-
-  const representativeView = await app.inject({
-    method: 'GET',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(requester),
-  });
-  expectSuccess(representativeView);
-  const pendingMembers = representativeView.json<{ pendingMembers: { id: string }[] }>()
-    .pendingMembers;
-  assert.ok(pendingMembers.some((membership) => membership.id === pending.id));
-
-  // Leave one real membership pending while a different ordinary member opens
-  // the class, so an empty pending directory cannot make this privacy test pass.
-  const secondJoin = await app.inject({
-    method: 'POST',
-    url: '/api/join',
-    headers: bearer(otherStudent),
-    payload: { code },
-  });
-  expectSuccess(secondJoin);
-  const secondMembershipId = secondJoin.json<{ membership: { id: string } }>().membership.id;
-  const secondApproval = await app.inject({
-    method: 'POST',
-    url: `/api/classes/${classroom.id}/memberships/${secondMembershipId}/decision`,
-    headers: bearer(requester),
-    payload: { decision: 'approve' },
-  });
-  expectSuccess(secondApproval);
-  const ordinaryMemberWithPendingPeer = await app.inject({
-    method: 'GET',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(otherStudent),
-  });
-  expectSuccess(ordinaryMemberWithPendingPeer);
-  assert.deepEqual(
-    ordinaryMemberWithPendingPeer.json<{ pendingMembers: unknown[] }>().pendingMembers,
-    [],
-  );
-  assert.ok(!ordinaryMemberWithPendingPeer.body.includes(DEMO_USERS.admin.email));
-
-  const membershipApproval = await app.inject({
-    method: 'POST',
-    url: `/api/classes/${classroom.id}/memberships/${pending.id}/decision`,
-    headers: bearer(requester),
-    payload: { decision: 'approve' },
-  });
-  expectSuccess(membershipApproval);
-  assert.equal(membershipApproval.json<{ status: string }>().status, 'active');
-  const approvedHistory = await app.inject({
-    method: 'GET',
-    url: '/api/me',
-    headers: bearer(existingAdmin),
-  });
-  expectSuccess(approvedHistory);
+  const later = await call('student', 'POST', '/subjects/join', { code: invite.json().code });
+  expectSuccess(later);
+  assert.equal(later.json().membership.status, 'active');
   assert.equal(
-    approvedHistory
-      .json<{ pendingMemberships: { id: string; status: string }[] }>()
-      .pendingMemberships.find((membership) => membership.id === pending.id)?.status,
-    'approved',
+    (await call('student', 'GET', `/classes/${classA}/subjects`)).json().subjects.length,
+    2,
   );
-
-  const memberView = await app.inject({
-    method: 'GET',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(existingAdmin),
-  });
-  expectSuccess(memberView);
-  const studentView = memberView.json<{
-    members: Record<string, unknown>[];
-    pendingMembers: unknown[];
-    invite: unknown;
-  }>();
-  assert.ok(studentView.members.length > 0);
-  assert.ok(studentView.members.every((member) => !Object.hasOwn(member, 'email')));
-  assert.deepEqual(studentView.pendingMembers, []);
-  assert.equal(studentView.invite, null);
-
-  // Being an admin in 5D grants no editing role in the new class.
-  const memberWrite = await app.inject({
-    method: 'PATCH',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(existingAdmin),
-    payload: { ...requestedClass, name: 'Unauthorized class rename' },
-  });
-  expectForbidden(memberWrite);
-
-  const representativeWrite = await app.inject({
-    method: 'PATCH',
-    url: `/api/classes/${classroom.id}`,
-    headers: bearer(requester),
-    payload: { ...requestedClass, name: 'Authorized admin rename' },
-  });
-  expectSuccess(representativeWrite);
-
-  const removeJoinedMember = await app.inject({
-    method: 'DELETE',
-    url: `/api/classes/${classroom.id}/members/${DEMO_USERS.admin.id}`,
-    headers: bearer(requester),
-  });
-  expectSuccess(removeJoinedMember);
-  const removedHistory = await app.inject({
-    method: 'GET',
-    url: '/api/me',
-    headers: bearer(existingAdmin),
-  });
-  expectSuccess(removedHistory);
   assert.equal(
-    removedHistory
-      .json<{ pendingMemberships: { id: string; status: string }[] }>()
-      .pendingMemberships.find((membership) => membership.id === pending.id)?.status,
-    'removed',
+    (await call('student', 'GET', `/classes/${classA}/deadlines?subjectId=${dbId}`)).json()
+      .deadlines.length,
+    1,
   );
-  const requesterHistory = await app.inject({
-    method: 'GET',
-    url: '/api/me',
-    headers: bearer(requester),
-  });
-  expectSuccess(requesterHistory);
+  expectSuccess(await call('student', 'GET', `/subjects/${dbId}`));
+  const snapshot = (await call('student', 'GET', '/offline/access')).json();
+  assert.deepEqual(snapshot.classIds, [classA]);
+  assert.equal(snapshot.subjectIds.length, 2);
+  assert.ok(!snapshot.subjectIds.includes(subjects[1]));
+  expectSuccess(
+    await call('owner', 'PATCH', `/admin/classes/${classA}/members/student/role`, {
+      role: 'admin',
+    }),
+  );
+  assert.equal((await call('student', 'GET', '/me')).json().classes[0].role, 'admin');
+  expectSuccess(
+    await call('owner', 'PATCH', `/admin/classes/${classA}/members/student/role`, {
+      role: 'student',
+    }),
+  );
+  expectForbidden(await call('student', 'POST', `/subjects/${subjectA}/invite`));
+});
+
+test('concurrent different-section joins and owner transfers serialize; transfers revoke old subject access and never copy admin roles', async (t) => {
+  const { call, classes, subjects, codes } = await setup(t);
+  const requests = await Promise.all(
+    codes.map((code) => call('student', 'POST', '/subjects/join', { code })),
+  );
   assert.deepEqual(
-    requesterHistory.json<{ pendingMemberships: unknown[] }>().pendingMemberships,
-    [],
-    'A direct class creator must not acquire a fictional join request.',
+    requests.map((r) => r.statusCode).sort(),
+    [200, 409],
+    requests.map((r) => r.body).join('\n'),
+  );
+  const approved = requests.find((r) => r.statusCode === 200)!.json().membership;
+  expectSuccess(
+    await call(
+      'owner',
+      'POST',
+      `/classes/${approved.classId}/memberships/${approved.id}/decision`,
+      { decision: 'approve' },
+    ),
+  );
+  assert.equal((await call('student', 'GET', '/me')).json().classes.length, 1);
+  expectSuccess(
+    await call('owner', 'PATCH', `/admin/classes/${approved.classId}/members/student/role`, {
+      role: 'admin',
+    }),
+  );
+  const previous = (await call('owner', 'GET', '/admin/users/student/section')).json().section;
+  const target = classes.find((id) => id !== approved.classId)!,
+    targetSubject = subjects[classes.indexOf(target)]!;
+  assert.equal(
+    (await call('owner', 'POST', `/admin/classes/${target}/members`, { userId: 'student' }))
+      .statusCode,
+    409,
+    'Owner enrollment must require a deliberate transfer.',
+  );
+  expectForbidden(
+    await call('student', 'PUT', '/admin/users/student/section', {
+      classId: target,
+      version: previous.version,
+      reason: 'Spoof transfer',
+      subjectIds: [targetSubject],
+    }),
+  );
+  const transfers = await Promise.all(
+    [1, 2].map(() =>
+      call('owner', 'PUT', '/admin/users/student/section', {
+        classId: target,
+        version: previous.version,
+        reason: 'Confirmed section transfer',
+        subjectIds: [targetSubject],
+      }),
+    ),
+  );
+  assert.deepEqual(
+    transfers.map((r) => r.statusCode).sort(),
+    [200, 409],
+    transfers.map((r) => r.body).join('\n'),
+  );
+  const me = (await call('student', 'GET', '/me')).json();
+  assert.deepEqual(
+    me.classes.map((c: { id: string; role: string }) => [c.id, c.role]),
+    [[target, 'student']],
+  );
+  expectForbidden(await call('student', 'GET', `/classes/${approved.classId}`));
+  expectForbidden(await call('student', 'GET', `/subjects/${approved.subjectId}`));
+  expectSuccess(await call('student', 'GET', `/subjects/${targetSubject}`));
+  const snapshot = (await call('student', 'GET', '/offline/access')).json();
+  assert.deepEqual(snapshot.classIds, [target]);
+  assert.deepEqual(snapshot.subjectIds, [targetSubject]);
+  const history = (await call('owner', 'GET', '/admin/users/student/section')).json().memberships;
+  assert.ok(
+    history.some(
+      (m: { classId: string; status: string }) =>
+        m.classId === approved.classId && m.status === 'removed',
+    ),
   );
 });
 
-test('only current class admins or the owner can create classes and retired approvals fail closed', async (t) => {
-  const app = await createTestApp(t);
-  const student = await demoToken(app, 'student');
-  const admin = await demoToken(app, 'admin');
-  const master = await demoToken(app, 'master');
-  const studentBefore = await app.inject({
-    method: 'GET',
-    url: '/api/me',
-    headers: bearer(student),
-  });
-  assert.equal(studentBefore.json().canCreateClass, false);
-  const blocked = await app.inject({
-    method: 'POST',
-    url: '/api/classes',
-    headers: { ...bearer(student), 'x-role': 'admin' },
-    payload: requestedClass,
-  });
-  assert.equal(blocked.statusCode, 403, blocked.body);
-  for (const token of [student, admin, master]) {
-    const retired = await app.inject({
-      method: 'POST',
-      url: '/api/class-requests',
-      headers: bearer(token),
-      payload: requestedClass,
-    });
-    assert.equal(retired.statusCode, 410, retired.body);
-  }
-  for (const url of [
-    `/api/admin/class-requests/${DEMO_CLASS_ID}/decision`,
-    `/api/admin/classes/${DEMO_CLASS_ID}/representatives`,
-  ]) {
-    expectForbidden(
-      await app.inject({
-        method: 'POST',
-        url,
-        headers: bearer(student),
-        payload: { decision: 'approve' },
-      }),
-    );
-    assert.equal(
-      (
-        await app.inject({
-          method: 'POST',
-          url,
-          headers: bearer(master),
-          payload: { decision: 'approve' },
-        })
-      ).statusCode,
-      410,
-    );
-  }
-  const created = await app.inject({
-    method: 'POST',
-    url: '/api/classes',
-    headers: bearer(admin),
-    payload: requestedClass,
-  });
-  assert.equal(created.statusCode, 201, created.body);
-  const classId = created.json().class.id;
-  const detail = await app.inject({
-    method: 'GET',
-    url: `/api/classes/${classId}`,
-    headers: bearer(admin),
-  });
-  assert.equal(detail.json().myRole, 'admin');
-  assert.deepEqual(
-    detail
-      .json()
-      .members.map((member: { userId: string; role: string }) => [member.userId, member.role]),
-    [[DEMO_USERS.admin.id, 'admin']],
-  );
-  const adminProfile = await app.inject({ method: 'GET', url: '/api/me', headers: bearer(admin) });
-  assert.equal(adminProfile.json().canCreateClass, true);
-  assert.equal(adminProfile.json().user.role, 'student');
-  assert.deepEqual(adminProfile.json().classRequests, []);
-  expectForbidden(
-    await app.inject({ method: 'GET', url: '/api/admin/overview', headers: bearer(admin) }),
-  );
-  expectForbidden(
-    await app.inject({
-      method: 'PATCH',
-      url: `/api/admin/classes/${classId}/members/${DEMO_USERS.admin.id}/role`,
-      headers: bearer(admin),
-      payload: { role: 'admin' },
+test('pending section requests can be cancelled or rejected and old class-code workflows cannot create memberships', async (t) => {
+  const { call, classes, codes } = await setup(t);
+  assert.equal((await call('student', 'POST', '/join', { code: codes[0] })).statusCode, 410);
+  assert.equal((await call('owner', 'POST', `/classes/${classes[0]}/invite`)).statusCode, 410);
+  const first = await call('student', 'POST', '/subjects/join', { code: codes[0] });
+  expectSuccess(first);
+  expectSuccess(await call('student', 'DELETE', '/me/section-request'));
+  assert.equal((await call('student', 'GET', '/me')).json().section.pendingClassId, null);
+  const second = await call('student', 'POST', '/subjects/join', { code: codes[1] });
+  expectSuccess(second);
+  const m = second.json().membership;
+  expectSuccess(
+    await call('admin-b', 'POST', `/classes/${m.classId}/memberships/${m.id}/decision`, {
+      decision: 'reject',
     }),
   );
+  assert.equal((await call('student', 'GET', '/me')).json().section.pendingClassId, null);
+  const again = await call('student', 'POST', '/subjects/join', { code: codes[0] });
+  expectSuccess(again);
 });

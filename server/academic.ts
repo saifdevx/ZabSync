@@ -15,6 +15,7 @@ import {
 } from './db.js';
 import { DEMO_CLASS_ID, DEMO_OTHER_CLASS_ID, DEMO_USERS } from './demo.js';
 import { requireCondition } from './errors.js';
+import { sectionScopeSql, subjectScopeSql } from './section-access.js';
 import {
   classAccess as baseClassAccess,
   requireMaster,
@@ -27,6 +28,7 @@ import {
   CLASS_STORAGE_BYTES,
   createPrivateStorage,
   MAX_RESOURCE_BYTES,
+  loadResourceLimits,
   temporaryUpload,
   validateResourceFile,
   type PrivateStorage,
@@ -132,29 +134,23 @@ function visibilitySql(
   subjectsEnabled: boolean,
   deleted = false,
 ) {
-  const membershipRole = deleted ? " AND member.role = 'admin'" : '';
-  const nonGlobal = `(EXISTS (SELECT 1 FROM classes classroom WHERE classroom.id=${alias}.class_id AND classroom.status='active')
-    AND (EXISTS(SELECT 1 FROM users owner WHERE owner.id=? AND owner.status='active' AND owner.role='master')
-      OR EXISTS(SELECT 1 FROM memberships member WHERE member.class_id=${alias}.class_id AND member.user_id=? AND member.status='active'${membershipRole})))`;
+  const section = `(EXISTS(SELECT 1 FROM classes classroom WHERE classroom.id=${alias}.class_id AND classroom.status='active')
+    AND (viewer.role='master' OR ${sectionScopeSql(`${alias}.class_id`, 'viewer.id', deleted)}))`;
   const global =
-    alias === 'a'
-      ? `(a.scope='global'${deleted ? " AND EXISTS(SELECT 1 FROM users owner WHERE owner.id=? AND owner.status='active' AND owner.role='master')" : ''}) OR `
-      : '';
-  const args: InValue[] = [userId];
-  if (alias === 'a' && deleted) args.push(userId);
-  args.push(userId, userId);
+    alias === 'a' ? `(a.scope='global'${deleted ? " AND viewer.role='master'" : ''}) OR ` : '';
   return {
-    sql: `${userAllowedSql()} AND (${global}${nonGlobal})
-      AND (${alias}.subject_id IS NULL OR (${subjectsEnabled ? '1=1' : '0=1'} AND EXISTS(SELECT 1 FROM subjects parent WHERE parent.id=${alias}.subject_id AND parent.class_id=${alias}.class_id AND parent.deleted_at IS NULL)))
+    sql: `EXISTS(SELECT 1 FROM users viewer WHERE viewer.id=? AND viewer.status='active' AND (${global}${section})
+      AND (${alias}.subject_id IS NULL OR (${subjectsEnabled ? '1=1' : '0=1'}
+        AND EXISTS(SELECT 1 FROM subjects parent WHERE parent.id=${alias}.subject_id AND parent.class_id=${alias}.class_id AND parent.deleted_at IS NULL)
+        AND (viewer.role='master' OR ${subjectScopeSql(`${alias}.class_id`, `${alias}.subject_id`, 'viewer.id')}))))
       AND ${alias}.deleted_at IS ${deleted ? 'NOT ' : ''}NULL${alias === 'r' && !deleted ? " AND r.storage_state='ready'" : ''}`,
-    args,
+    args: [userId] as InValue[],
   };
 }
 
 function manageSql(alias: 'a' | 'r' | 's') {
   return `(EXISTS(SELECT 1 FROM users owner WHERE owner.id=? AND owner.status='active' AND owner.role='master')
-    OR (${alias}.class_id IS NOT NULL AND EXISTS(SELECT 1 FROM memberships manager WHERE manager.user_id=? AND manager.class_id=${alias}.class_id
-      AND manager.status='active' AND manager.role = 'admin'))) AS can_manage`;
+    OR ${sectionScopeSql(`${alias}.class_id`, '?', true)}) AS can_manage`;
 }
 
 function bookmarkSql(alias: 'a' | 'r', kind: 'announcement' | 'resource') {
@@ -211,7 +207,7 @@ const resourceFrom =
 const announcementFrom =
   'FROM announcements a LEFT JOIN classes c ON c.id=a.class_id LEFT JOIN subjects s ON s.id=a.subject_id JOIN users u ON u.id=a.created_by';
 
-async function subjectAccess(
+export async function subjectAccess(
   db: Database,
   actor: CurrentUser,
   id: string,
@@ -228,7 +224,25 @@ async function subjectAccess(
     'subject_not_found',
     'This subject is not available to you.',
   );
-  return { subject, access };
+  if (access.role === 'student') {
+    const enrollment = await first(
+      db,
+      "SELECT status FROM subject_enrollments WHERE subject_id=? AND user_id=? AND status='active'",
+      [id, actor.id],
+    );
+    requireCondition(
+      enrollment,
+      404,
+      'subject_not_found',
+      'Join this subject with its code before opening it.',
+    );
+  }
+  return {
+    subject,
+    access,
+    classId: stringValue(subject.class_id),
+    canManage: access.role !== 'student',
+  };
 }
 
 async function contentAccess(
@@ -442,6 +456,7 @@ export function registerAcademicRoutes(
 ): void {
   const { db, now, authenticate } = context;
   const storage = context.storage || createPrivateStorage();
+  const limits = loadResourceLimits(context.config.nodeEnv === 'test' ? {} : process.env);
 
   app.get('/api/classes/:id/subjects', async (request) => {
     const actor = await authenticate(request);
@@ -449,8 +464,13 @@ export function registerAcademicRoutes(
     const classId = routeId(request);
     const query = subjectQuery.parse(request.query);
     const access = await classAccess(db, actor, classId, query.deleted);
-    const where = `s.class_id=? AND s.deleted_at IS ${query.deleted ? 'NOT ' : ''}NULL AND (s.name LIKE ? ESCAPE '\\' OR s.code LIKE ? ESCAPE '\\')`;
-    const args = [classId, likePattern(query.q), likePattern(query.q)];
+    const where = `s.class_id=? AND s.deleted_at IS ${query.deleted ? 'NOT ' : ''}NULL AND (s.name LIKE ? ESCAPE '\\' OR s.code LIKE ? ESCAPE '\\')${access.role === 'student' ? " AND EXISTS(SELECT 1 FROM subject_enrollments e WHERE e.subject_id=s.id AND e.user_id=? AND e.status='active')" : ''}`;
+    const args = [
+      classId,
+      likePattern(query.q),
+      likePattern(query.q),
+      ...(access.role === 'student' ? [actor.id] : []),
+    ];
     const list = await rows(
       db,
       `${subjectSelect} WHERE ${where} ORDER BY s.name COLLATE NOCASE,s.id LIMIT ? OFFSET ?`,
@@ -635,7 +655,7 @@ export function registerAcademicRoutes(
     return {
       resources: list.map(resourceRecord),
       pagination: { limit: query.limit, offset: query.offset, total: numberValue(count?.n) },
-      limits: { fileBytes: MAX_RESOURCE_BYTES, classBytes: CLASS_STORAGE_BYTES },
+      limits,
       storageUsedBytes,
     };
   });
@@ -643,7 +663,7 @@ export function registerAcademicRoutes(
   app.post(
     '/api/classes/:id/resources',
     {
-      bodyLimit: MAX_RESOURCE_BYTES + 128 * 1024,
+      bodyLimit: limits.fileBytes + 128 * 1024,
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
@@ -652,7 +672,7 @@ export function registerAcademicRoutes(
       await requireFeature(db, 'resources');
       await classAccess(db, actor, classId, true);
       await requireWritable(db, actor);
-      const upload = await temporaryUpload(request, MAX_RESOURCE_BYTES);
+      const upload = await temporaryUpload(request, limits.fileBytes);
       let objectKey: string | null = null;
       try {
         const form = resourceForm
@@ -668,10 +688,13 @@ export function registerAcademicRoutes(
             'This subject belongs to another class.',
           );
         }
-        const mimeType = await validateResourceFile(upload),
+        const mimeType = await validateResourceFile(upload, limits),
           id = randomUUID();
         objectKey = `resources/${id}${extname(upload.filename).toLowerCase()}`;
-        await storage.putFile(objectKey, upload.path, mimeType);
+        await storage.putFile(objectKey, upload.path, mimeType, {
+          userId: actor.id,
+          filename: upload.filename,
+        });
         const resource = await inWriteTransaction(db, async (tx) => {
           await requireWritable(tx, actor);
           await requireFeature(tx, 'resources');
@@ -691,10 +714,10 @@ export function registerAcademicRoutes(
             [classId],
           );
           requireCondition(
-            numberValue(usage?.n) + upload.size <= CLASS_STORAGE_BYTES,
+            numberValue(usage?.n) + upload.size <= limits.classBytes,
             409,
             'storage_quota',
-            'This class has reached its 100 MiB storage allowance. Permanently remove unneeded trashed files first.',
+            'This section has reached its configured document allowance. Contact the owner or remove unneeded files from trash.',
           );
           const stamp = now();
           await tx.execute({
@@ -1142,6 +1165,13 @@ export async function seedAcademic(db: Client, now = new Date()): Promise<void> 
         ],
       });
     }
+    await tx.execute({
+      sql: `INSERT OR IGNORE INTO subject_enrollments(subject_id,user_id,status,created_at,updated_at)
+      SELECT s.id,m.user_id,'active',?,? FROM subjects s JOIN memberships m ON m.class_id=s.class_id
+      JOIN student_sections b ON b.user_id=m.user_id AND b.class_id=m.class_id AND b.needs_resolution=0
+      WHERE m.status='active' AND s.created_by IN(SELECT id FROM users WHERE identity_source='demo')`,
+      args: [stamp, stamp],
+    });
     for (const item of [
       {
         id: '30000000-0000-4000-8000-000000000001',

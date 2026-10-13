@@ -1,5 +1,8 @@
 # Checkpoint 3: class admins and owner hierarchy
 
+> Historical checkpoint reference. For version 0.4.0, the current requirements and routes in [SECTIONS_AND_SUBJECTS](SECTIONS_AND_SUBJECTS.md), [CHECKPOINT_4_GUIDE](CHECKPOINT_4_GUIDE.md) and [project context](../ZabSync_Project_Context.md) take precedence. Only the owner creates sections; student subject enrollment is restricted to one pinned section.
+
+
 ZabSync has two global account roles: `student` and `master`. A class membership has a separate `student` or `admin` role. A user can administer one class and be an ordinary member of another. Class administration never grants access to the owner dashboard, all classes, global announcements, settings, developer drafts, or account suspension.
 
 Every request requires an authenticated, active account. Ordinary users need verified university email; the single server-configured owner can use an external email only with its exact verified email and pinned Firebase UID. See [OWNER_ACCOUNT.md](OWNER_ACCOUNT.md). Permissions are reread from the database, including inside write transactions. Client flags, cached roles, user-supplied headers, profile names, roll numbers, and knowledge of a class ID never grant authority.

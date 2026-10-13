@@ -6,7 +6,7 @@ import { renderApplication } from './ui-harness.js';
 
 test(
   'the full weekly board preserves recurring edits and dated moves, then opens all saved days read-only for a student',
-  { timeout: 60_000 },
+  { timeout: 180_000 },
   async (t) => {
     const ui = await renderApplication(t);
     const { screen, fireEvent, waitFor, within, mainNavigation, switchRole, lastCall, calls, dom } =

@@ -97,6 +97,7 @@ export async function seedDemo(db: Client, now = new Date()): Promise<void> {
     });
     // The owner uses its console; existing historical owner memberships are left intact.
     for (const persona of ['student', 'admin', 'legacyGr'] as const) {
+      if (await first(tx, 'SELECT id FROM memberships WHERE class_id=? AND user_id=?', [DEMO_CLASS_ID, DEMO_USERS[persona].id])) continue;
       await tx.execute({
         sql: 'INSERT OR IGNORE INTO memberships(id,class_id,user_id,role,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
         args: [
@@ -110,7 +111,7 @@ export async function seedDemo(db: Client, now = new Date()): Promise<void> {
         ],
       });
     }
-    await tx.execute({
+    if (!(await first(tx, 'SELECT id FROM memberships WHERE class_id=? AND user_id=?', [DEMO_OTHER_CLASS_ID, DEMO_USERS.otherAdmin.id]))) await tx.execute({
       sql: 'INSERT OR IGNORE INTO memberships(id,class_id,user_id,role,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
       args: [
         randomUUID(),

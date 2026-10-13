@@ -1,9 +1,9 @@
 {
   "name": "zabsync",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "ZabSync \u2014 Built for Students. Designed for Success \u2014 checkpoint 3",
+  "description": "ZabSync — Built for Students. Designed for Success — checkpoint 4",
   "engines": {
     "node": ">=24 <25"
   },
@@ -15,10 +15,13 @@
     "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "build": "npm run typecheck && vite build && node scripts/stamp-web-build.mjs && tsc -p tsconfig.server.json",
     "start": "node dist/server/index.js",
-    "test": "node --import tsx --test tests/*.test.ts tests/*.test.tsx",
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.tsx",
     "db:migrate": "node --import tsx server/migrate.ts",
     "format": "prettier --write .",
-    "owner:transfer": "node --import tsx server/owner-transfer-cli.ts"
+    "owner:transfer": "node --import tsx server/owner-transfer-cli.ts",
+    "reminders:once": "node --import tsx server/reminder-runner.ts --once",
+    "reminders:watch": "node --import tsx server/reminder-runner.ts --watch",
+    "backup": "node --import tsx server/backup-cli.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1149.0",
@@ -32,6 +35,7 @@
     "fastify": "5.12.5",
     "firebase": "13.0.0",
     "firebase-admin": "14.5.0",
+    "jszip": "3.10.2",
     "lucide-react": "1.55.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

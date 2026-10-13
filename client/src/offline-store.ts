@@ -18,6 +18,7 @@ export interface OfflineAccess {
     'id' | 'classId' | 'updatedAt' | 'filename' | 'title' | 'mimeType' | 'sizeBytes'
   >[];
   subjectIds: string[];
+  timetableSubjectIds?: string[];
   announcementIds: string[];
 }
 export interface OfflineLease {
@@ -29,7 +30,7 @@ interface ActiveAccount extends OfflineLease {
   enabled: boolean;
 }
 export interface OfflineSnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   userId: string;
   savedAt: string;
   expiresAt: string;
@@ -125,7 +126,7 @@ function assertLease(
 function validSnapshot(snapshot: OfflineSnapshot | undefined, now: number) {
   return (
     !!snapshot &&
-    snapshot.schemaVersion === 1 &&
+    snapshot.schemaVersion === 2 &&
     snapshot.me.user.id === snapshot.userId &&
     snapshot.me.user.role === 'student' &&
     snapshot.me.user.status === 'active' &&
@@ -150,6 +151,8 @@ export function safeOfflineMe(
       status: me.user.status,
     },
     classes: me.classes.filter((item) => classIds.has(item.id)),
+    section: me.section ? { ...me.section, pendingClassId: null } : undefined,
+    subjectRequests: [],
     canCreateClass: false,
     pendingMemberships: [],
     classRequests: [],
@@ -175,23 +178,27 @@ export function pruneSnapshot(
   if (snapshot.userId !== access.userId || (me && me.user.id !== access.userId)) throw mismatch();
   const classes = new Set(access.classes.map((item) => item.id));
   const subjects = new Set(access.subjectIds);
+  const timetableSubjects = new Set(access.timetableSubjectIds ?? access.subjectIds);
   const resources = new Map(access.resources.map((item) => [item.id, item]));
   const notices = new Set(access.announcementIds);
   const flags = access.settings.features;
   const keepScoped = (item: { classId?: unknown; subjectId?: unknown }) =>
     (!item.classId || classes.has(String(item.classId))) &&
     (!item.subjectId || (flags.subjects && subjects.has(String(item.subjectId))));
+  const keepTimetableScoped = (item: { classId?: unknown; subjectId?: unknown }) =>
+    (!item.classId || classes.has(String(item.classId))) &&
+    (!item.subjectId || (flags.subjects && timetableSubjects.has(String(item.subjectId))));
   const keepResource = (item: Resource) =>
     flags.resources && keepScoped(item) && resources.get(item.id)?.updatedAt === item.updatedAt;
   const entryIds = new Set(
     Object.values(snapshot.timetables).flatMap((item) =>
       (Array.isArray(item.entries) ? item.entries : [])
-        .filter(keepScoped)
+        .filter(keepTimetableScoped)
         .map((entry: { id: string }) => entry.id),
     ),
   );
   const keepPlanning = (item: { classId?: unknown; subjectId?: unknown; entryId?: unknown }) =>
-    keepScoped(item) && (!item.entryId || entryIds.has(String(item.entryId)));
+    keepTimetableScoped(item) && (!item.entryId || entryIds.has(String(item.entryId)));
   const filterClasses = <T>(value: Record<string, T>, transform: (entry: T) => T) =>
     Object.fromEntries(
       Object.entries(value)
@@ -226,7 +233,7 @@ export function pruneSnapshot(
       ? filterClasses(snapshot.timetables, (item) => ({
           ...item,
           canManage: false,
-          entries: (Array.isArray(item.entries) ? item.entries : []).filter(keepScoped),
+          entries: (Array.isArray(item.entries) ? item.entries : []).filter(keepTimetableScoped),
           exceptions: (Array.isArray(item.exceptions) ? item.exceptions : []).filter(keepPlanning),
           sessions: (Array.isArray(item.sessions) ? item.sessions : []).filter(keepPlanning),
         }))

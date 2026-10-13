@@ -1,0 +1,456 @@
+.student-tool-page {
+  display: grid;
+  gap: 24px;
+  padding-bottom: 20px;
+}
+.tool-heading {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tool-heading h1 {
+  font-size: clamp(26px, 3vw, 34px);
+  margin: 5px 0 8px;
+  letter-spacing: -0.035em;
+}
+.tool-heading p {
+  color: var(--muted);
+  max-width: 55ch;
+}
+.tool-heading-icon {
+  background: #e7f0ff;
+  color: #0b4ca1;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+}
+.tool-local-badge {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  color: #2d6852;
+  background: #ecf8f1;
+  border: 1px solid #d5ebdf;
+  border-radius: 30px;
+  padding: 7px 11px;
+  font-size: 11px;
+  margin-left: auto;
+}
+.student-tools-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(290px, 0.85fr);
+  gap: 22px;
+  align-items: start;
+}
+.tool-panel {
+  padding: 24px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e4e9f2);
+  border-radius: 23px;
+  box-shadow: 0 4px 20px #192e5904;
+  min-width: 0;
+}
+.tool-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.tool-panel-heading h2,
+.tool-panel h2 {
+  font-size: 17px;
+  letter-spacing: -0.015em;
+}
+.tool-panel-heading p {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 5px;
+}
+.tool-step {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  width: 34px;
+  border: 1px solid #dce5f3;
+  color: #0b4ca1;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.tool-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
+.tool-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 13px;
+}
+.tool-success {
+  color: #246442;
+  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.tool-preview-panel {
+  padding: 24px;
+  background: #eef3fa;
+  border: 1px solid #dfe7f3;
+  border-radius: 23px;
+}
+.cover-preview {
+  color: #101e32;
+  font-family: Georgia, serif;
+  background: white;
+  padding: 30px 26px 15px;
+  box-shadow: 0 10px 30px #192e5910;
+  border: 1px solid #abb6c8;
+  outline: 1px solid #233859;
+  outline-offset: -9px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.cover-preview-university img {
+  width: 180px;
+  margin: 0 auto 10px;
+}
+.cover-preview-university span {
+  font-size: 8px;
+  font-family: var(--font);
+}
+.cover-preview h3 {
+  font-size: 24px;
+  margin: 30px 0 10px;
+}
+.cover-preview > strong {
+  font-size: 15px;
+}
+.cover-preview > p {
+  font-size: 11px;
+  margin: 12px 0 30px;
+}
+.cover-preview dl {
+  margin: 0;
+  text-align: left;
+  font-size: 12px;
+}
+.cover-preview dt {
+  font-weight: bold;
+  margin-top: 17px;
+}
+.cover-preview dd {
+  margin: 6px 0 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #acb3bc;
+  min-height: 24px;
+}
+.cover-preview footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 9px;
+  padding-top: 35px;
+}
+.tool-segmented {
+  display: flex;
+  gap: 3px;
+  background: #eff3f8;
+  padding: 4px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  max-width: 315px;
+}
+.tool-segmented button {
+  flex: 1;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+.tool-segmented button.active {
+  background: #fff;
+  color: #0b4ca1;
+  box-shadow: 0 2px 7px #192e5912;
+}
+.gpa-course-rows {
+  display: grid;
+  gap: 15px;
+}
+.gpa-course {
+  padding: 12px;
+  border: 1px solid #e2e9f2;
+  border-radius: 14px;
+  min-width: 0;
+  margin: 0;
+  background: #fcfdff;
+}
+.gpa-course legend {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  padding: 0 5px;
+  color: #6a7b91;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.gpa-course-fields {
+  display: grid;
+  grid-template-columns: minmax(90px, 1.6fr) minmax(70px, 1fr) minmax(75px, 1fr) 28px;
+  gap: 9px;
+  align-items: end;
+}
+.gpa-course-fields label {
+  font-size: 11px;
+  min-width: 0;
+}
+.gpa-course-fields input,
+.gpa-course-fields select {
+  padding: 9px;
+  min-width: 0;
+  width: 100%;
+}
+.gpa-remove {
+  margin-bottom: 7px;
+}
+.gpa-previous {
+  border-top: 1px solid #e4eaf3;
+  margin-top: 5px;
+  padding-top: 17px;
+}
+.gpa-checkbox {
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 12px !important;
+  align-items: center;
+  margin-bottom: 15px;
+}
+.gpa-checkbox input {
+  width: 17px;
+  height: 17px;
+  min-height: unset;
+  accent-color: #0b4ca1;
+}
+.gpa-checkbox small {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 3px;
+}
+.tool-form-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.gpa-results-column {
+  display: grid;
+  gap: 20px;
+}
+.gpa-result-panel {
+  color: white;
+  background: linear-gradient(140deg, #192e59 0%, #123e80 80%);
+  border-radius: 23px;
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+}
+.gpa-result-panel::after {
+  content: '';
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 35px solid #ffffff07;
+  right: -60px;
+  top: -45px;
+  pointer-events: none;
+}
+.gpa-result-panel .eyebrow {
+  color: #bed8fd;
+  font-size: 10px;
+}
+.gpa-value {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 62px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
+  margin: 15px 0 1px;
+}
+.gpa-value small {
+  font-size: 16px;
+  color: #a9c7ee;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.gpa-result-panel > p {
+  color: #c8d9f2;
+  font-size: 12px;
+}
+.gpa-result-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  border-top: 1px solid #ffffff23;
+  margin-top: 23px;
+  padding-top: 17px;
+}
+.gpa-result-meta span {
+  font-size: 11px;
+  color: #bdd3ef;
+  display: block;
+}
+.gpa-result-meta strong {
+  font-size: 21px;
+  display: block;
+  margin-top: 3px;
+}
+.grade-scale {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 17px;
+}
+.grade-scale th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  text-align: left;
+  padding-bottom: 9px;
+}
+.grade-scale td {
+  padding: 8px 0;
+  border-top: 1px solid #eff2f7;
+}
+.grade-scale td:last-child,
+.grade-scale th:last-child {
+  text-align: right;
+}
+.grade-pill {
+  display: inline-block;
+  min-width: 32px;
+  text-align: center;
+  border-radius: 6px;
+  padding: 2px 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.grade-high {
+  background: #e6f5ee;
+  color: #237351;
+}
+.grade-mid {
+  background: #ebf1ff;
+  color: #315f9e;
+}
+.grade-low {
+  background: #f5f0e8;
+  color: #8d6a3d;
+}
+.tool-table-scroll {
+  overflow-x: auto;
+}
+.gpa-breakdown table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  margin-top: 18px;
+  font-size: 13px;
+}
+.gpa-breakdown th,
+.gpa-breakdown td {
+  padding: 11px 14px;
+  border-bottom: 1px solid #edf1f6;
+}
+@media (max-width: 1050px) {
+  .gpa-course-fields {
+    grid-template-columns: 1fr 1fr 30px;
+  }
+  .gpa-subject-name {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 800px) {
+  .student-tools-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tool-preview-panel {
+    max-width: 470px;
+    width: 100%;
+    justify-self: center;
+  }
+  .gpa-results-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tool-local-badge {
+    margin-left: 0;
+  }
+}
+@media (max-width: 480px) {
+  .tool-panel,
+  .tool-preview-panel {
+    padding: 18px;
+    border-radius: 19px;
+  }
+  .tool-form-row {
+    gap: 11px;
+  }
+  .tool-heading-icon {
+    display: none;
+  }
+  .gpa-course {
+    padding: 10px;
+  }
+  .student-tool-page {
+    gap: 19px;
+  }
+}
+.ops-storage-progress {
+  width: 100%;
+  height: 12px;
+  accent-color: #0b4ca1;
+  margin: 16px 0 2px;
+}
+.ops-health-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.ops-health-counts > div {
+  border: 1px solid #e2e9f3;
+  padding: 15px;
+  border-radius: 14px;
+  background: #fbfcff;
+}
+.ops-health-counts strong {
+  display: block;
+  font-size: 26px;
+  color: #192e59;
+}
+.ops-health-counts span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.google-signin-option {
+  margin: 18px 0;
+}
+.google-signin-option > small {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.google-signin-option > span {
+  font-size: 11px;
+  text-align: center;
+}

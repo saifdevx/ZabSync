@@ -493,6 +493,8 @@ export function registerOperationsRoutes(app: FastifyInstance, context: Operatio
               db,
               `
         SELECT a.class_id FROM memberships a JOIN memberships b ON b.class_id = a.class_id
+        JOIN student_sections sa ON sa.user_id = a.user_id AND sa.class_id = a.class_id AND sa.needs_resolution = 0
+        JOIN student_sections sb ON sb.user_id = b.user_id AND sb.class_id = b.class_id AND sb.needs_resolution = 0
         JOIN classes c ON c.id = a.class_id
         WHERE a.user_id = ? AND b.user_id = ? AND a.status = 'active' AND b.status = 'active' AND c.status = 'active' LIMIT 1`,
               [actor.id, targetId],

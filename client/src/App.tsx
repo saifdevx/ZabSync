@@ -11,6 +11,11 @@ import {
 } from 'react-router-dom';
 import {
   CalendarDays,
+  Calculator,
+  FileText,
+  AlarmClock,
+  HelpCircle,
+  HardDrive,
   Code2,
   CheckSquare2,
   ArrowUpRight,
@@ -36,7 +41,19 @@ import {
 import { errorMessage, useAuth } from './auth';
 import { AuthScreen, VerificationScreen } from './AuthScreen';
 import { Avatar, EmptyState, ErrorNotice, Spinner, useToast } from './components';
-import { AdminPage, ClassPage, ClassesPage, Dashboard, RequestsPage } from './pages';
+import {
+  AdminPage,
+  ClassPage,
+  ClassesPage,
+  Dashboard,
+  RequestsPage,
+  MySubjectsPage,
+} from './pages';
+import { FrontPagePage, CgpaPage } from './StudentToolsPages';
+import { ReminderPage } from './ReminderPanel';
+import { OperationsHealthPage } from './OperationsHealthPage';
+import { HelpPage } from './HelpPage';
+import { AdminHelpPanel } from './AdminHelpPanel';
 import {
   AnnouncementPage,
   AnnouncementsPage,
@@ -138,13 +155,17 @@ function AppShell() {
   const nav = owner
     ? [
         { to: '/admin', label: 'Owner dashboard', icon: ShieldCheck },
+        { to: '/admin/operations', label: 'Operations', icon: HardDrive },
         { to: '/developer', label: 'Meet the Developer', icon: Code2 },
         { to: '/install', label: 'Get the App', icon: Smartphone },
         { to: '/account', label: 'My profile', icon: UserRound },
       ]
     : [
         { to: '/', label: 'Home', icon: Home },
-        { to: '/classes', label: 'My classes', icon: BookOpen },
+        { to: '/classes', label: 'My Class', icon: Users },
+        ...(site.settings?.features.subjects === false
+          ? []
+          : [{ to: '/subjects', label: 'My Subjects', icon: BookOpen }]),
         ...(site.settings?.features.timetable === false
           ? []
           : [{ to: '/timetable', label: 'Timetable', icon: CalendarDays }]),
@@ -154,9 +175,21 @@ function AppShell() {
         ...(site.settings?.features.announcements === false
           ? []
           : [{ to: '/announcements', label: 'Noticeboard', icon: Bell }]),
+        ...(site.settings?.features.reminders === false
+          ? []
+          : [{ to: '/reminders', label: 'Reminders', icon: AlarmClock }]),
+        ...(site.settings?.features.frontPage === false
+          ? []
+          : [{ to: '/front-page', label: 'Front page', icon: FileText }]),
+        ...(site.settings?.features.cgpa === false
+          ? []
+          : [{ to: '/cgpa', label: 'CGPA calculator', icon: Calculator }]),
         { to: '/saved', label: 'Saved items', icon: Bookmark },
         { to: '/offline', label: 'Offline access', icon: WifiOff },
         { to: '/install', label: 'Get the App', icon: Smartphone },
+        ...(site.settings?.features.help === false
+          ? []
+          : [{ to: '/help', label: 'Help & campus guide', icon: HelpCircle }]),
       ];
   const mobile = owner
     ? [
@@ -167,12 +200,12 @@ function AppShell() {
       ]
     : [
         { to: '/', label: 'Home', icon: Home },
+        site.settings?.features.subjects === false
+          ? { to: '/classes', label: 'My Class', icon: Users }
+          : { to: '/subjects', label: 'Subjects', icon: BookOpen },
         site.settings?.features.timetable === false
-          ? { to: '/classes', label: 'Classes', icon: BookOpen }
+          ? { to: '/announcements', label: 'Updates', icon: Bell }
           : { to: '/timetable', label: 'Timetable', icon: CalendarDays },
-        site.settings?.features.announcements === false
-          ? { to: '/saved', label: 'Saved', icon: Bookmark }
-          : { to: '/announcements', label: 'Updates', icon: Bell },
         { to: '/more', label: 'More', icon: LayoutGrid },
       ];
   const notifications = useApi<NotificationsData>(
@@ -256,7 +289,7 @@ function AppShell() {
               <small>
                 {me.user.role === 'master'
                   ? 'Master Admin'
-                  : me.canCreateClass
+                  : me.classes.some((section) => section.role === 'admin')
                     ? 'Class Admin'
                     : 'Student'}
               </small>
@@ -430,6 +463,18 @@ function AppShell() {
               element={owner ? <Navigate to="/admin" replace /> : <RequestsPage />}
             />
             <Route path="/account" element={<ProfilePage />} />
+            <Route
+              path="/subjects"
+              element={owner ? <Navigate to="/admin" replace /> : <MySubjectsPage />}
+            />
+            <Route path="/class" element={<Navigate to="/classes" replace />} />
+            <Route path="/front-page" element={<FrontPagePage />} />
+            <Route path="/cgpa" element={<CgpaPage />} />
+            <Route path="/help" element={<HelpPage />} />
+            <Route
+              path="/reminders"
+              element={owner ? <Navigate to="/admin/operations" replace /> : <ReminderPage />}
+            />
             <Route path="/subjects/:subjectId" element={<SubjectPage key={location.pathname} />} />
             <Route
               path="/announcements"
@@ -465,6 +510,14 @@ function AppShell() {
             />
             <Route path="/more" element={<MorePage />} />
             <Route path="/admin" element={owner ? <AdminPage /> : <Navigate to="/" replace />} />
+            <Route
+              path="/admin/operations"
+              element={owner ? <OperationsHealthPage /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/help"
+              element={owner ? <AdminHelpPanel /> : <Navigate to="/" replace />}
+            />
             <Route
               path="/admin/classes/:classId"
               element={
@@ -551,10 +604,50 @@ function MorePage() {
       : [
           {
             to: '/classes',
-            title: 'My classes',
-            text: 'Your section and subject spaces',
+            title: 'My Class',
+            text: 'Your single section and class-wide updates',
             icon: BookOpen,
           },
+          ...(site.settings?.features.subjects === false
+            ? []
+            : [
+                {
+                  to: '/subjects',
+                  title: 'My Subjects',
+                  text: 'Resources, announcements, deadlines, and chat',
+                  icon: BookOpen,
+                },
+              ]),
+          ...(site.settings?.features.reminders === false
+            ? []
+            : [
+                {
+                  to: '/reminders',
+                  title: 'Reminders',
+                  text: 'Your deadline reminders and device notifications',
+                  icon: AlarmClock,
+                },
+              ]),
+          ...(site.settings?.features.frontPage === false
+            ? []
+            : [
+                {
+                  to: '/front-page',
+                  title: 'Front page',
+                  text: 'Download your university cover in Word',
+                  icon: FileText,
+                },
+              ]),
+          ...(site.settings?.features.cgpa === false
+            ? []
+            : [
+                {
+                  to: '/cgpa',
+                  title: 'CGPA calculator',
+                  text: 'Semester GPA and cumulative planning',
+                  icon: Calculator,
+                },
+              ]),
           ...(site.settings?.features.deadlines === false
             ? []
             : [
@@ -586,7 +679,7 @@ function MorePage() {
           {
             to: '/requests',
             title: 'Join requests',
-            text: 'Class membership status',
+            text: 'Subject and section admission status',
             icon: ClipboardList,
           },
           { to: '/search', title: 'Search', text: 'Find a file or announcement', icon: Search },
@@ -613,6 +706,16 @@ function MorePage() {
       text: 'Home-screen installation and about ZabSync',
       icon: Smartphone,
     },
+    ...(site.settings?.features.help === false
+      ? []
+      : [
+          {
+            to: '/help',
+            title: 'Help & campus guide',
+            text: 'Approved answers about ZabSync and university resources',
+            icon: HelpCircle,
+          },
+        ]),
   ];
   return (
     <>

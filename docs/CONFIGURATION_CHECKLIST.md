@@ -1,6 +1,6 @@
-# Configuration checklist
+# Configuration checklist — Checkpoint 4
 
-Use [START_HERE.md](START_HERE.md) first. **You do not need any provider account to try the local demonstration.** This guide prepares the optional real-account mode; it is not an instruction to publish this checkpoint to real students.
+Use [START_HERE.md](START_HERE.md) first. **You do not need any provider account to try the local demonstration.** This guide prepares real-account mode. Start with CHECKPOINT_4_GUIDE.md for the current complete flow, then use this checklist for provider setup and staging acceptance.
 
 ## A. Local demonstration
 
@@ -136,10 +136,10 @@ Copying `.env` or changing the URL does not transfer existing records. Database 
 - [ ] Email enumeration protection is enabled in the Firebase project.
 - [ ] An address outside `szabist-isb.pk` cannot access protected application data unless it is the exact configured verified owner email and UID. A different Gmail account or a mismatched UID is rejected.
 - [ ] A verified user without membership cannot read or manage another class.
-- [ ] Ordinary students cannot create classes; only the owner or an active admin of an active class can create directly.
+- [ ] Only Master Admin can create a section. Class Admins can create subjects only inside their assigned section. Ordinary students cannot create either.
 - [ ] The owner can enroll a registered account and assign/demote its class admin role. Existing sessions follow that change immediately.
 - [ ] Owner-created classes remain outside the owner's enrolled-class list. The Master account cannot join, be enrolled, or be appointed as a class admin; use a separate university account.
-- [ ] Join-code requests still require approval from an admin of that exact class.
+- [ ] A first subject-code request requires approval and pins the student to that section; another-section code is denied. Additional subjects inside the pinned section can be joined by code. Only the owner transfers students.
 - [ ] Password recovery works through the configured Firebase email flow.
 - [ ] The intended account and database belong to your development environment.
 
@@ -151,9 +151,9 @@ Basic Firebase authentication can still contain an unsupported user's provider-s
 
 Checkpoint 5 provides the complete deployment instructions. A public deployment will require Firebase authentication, HTTPS, exact production origins and Firebase authorized domains, a persistent database, protected server secrets, and completed verification. Demo mode deliberately refuses production use.
 
-On a host that requires it, the API will use `HOST=0.0.0.0`, `NODE_ENV=production`, and the host-assigned `PORT`. Those settings alone do not make this checkpoint ready for a public rollout. Private R2 storage is implemented below. Push delivery, AI, the PDF template, and Android packaging are addressed in their respective checkpoints.
+On a host that requires it, the API will use `HOST=0.0.0.0`, `NODE_ENV=production`, and the host-assigned `PORT`. Those settings alone do not make this checkpoint ready for a public rollout. Private R2 and Drive, optional push, approved Help/AI and the Word template are implemented in Checkpoint 4 and require the documented configuration. Actual cloud/device acceptance and Android packaging remain Checkpoint 5 work.
 
-## I. Private lecture and profile-photo storage
+## I. Private base storage and Google Drive resources
 
 Local practice uses `STORAGE_DRIVER=local`. Files are stored below `STORAGE_LOCAL_DIR` (default `./data/storage`) and temporary uploads use `UPLOAD_TEMP_DIR` (default `./data/tmp`). Both must be outside the web assets. The API never serves this directory directly. Back it up with the SQL database.
 
@@ -173,14 +173,24 @@ This implementation sends file bytes through the authenticated Node API. It does
 
 Changing `STORAGE_DRIVER` or bucket does not migrate existing files. Copy the private object keys and bytes as part of a planned migration, then switch configuration. Keep the original store until validation passes. Database rows hold storage keys, not the file bytes.
 
-Current lecture limits are 25 MiB per file and 100 MiB per class, counting trash. Photo uploads accept JPEG/PNG/WebP up to 2 MiB and 16 megapixels and are re-encoded to WebP at a maximum 512×512 pixels. The limits are code constants in this checkpoint; dashboard budget/quota controls come in the operations phase. No aggregate 10 GB billing guarantee is enforced yet; check your provider usage before inviting many classes.
+Current defaults are 25 MiB per document, 100 MiB per video and 500 MiB per section, counting trash. Configure RESOURCE_MAX_DOCUMENT_MIB, RESOURCE_MAX_VIDEO_MIB and CLASS_STORAGE_MIB privately. Photo uploads accept JPEG/PNG/WebP up to 2 MiB and 16 megapixels and are re-encoded to WebP at a maximum 512×512 pixels. The aggregate tracked base-store ceiling defaults to 8 GiB through BASE_STORAGE_LIMIT_MIB, with durable reservations and an owner usage view. It is not a provider billing guarantee: operations, external objects and separate backups can still incur charges.
+
+Configure Google Drive separately using [GOOGLE_DRIVE_STORAGE](GOOGLE_DRIVE_STORAGE.md). With RESOURCE_STORAGE=drive, new academic resources use the uploading admin's private Drive while avatars use this base store. A personal Drive account does not become a permitted application-login identity. Google requires a separate one-time consent. There is no silent resource fallback after a Drive failure; changing providers does not move existing bytes.
 
 ## J. Master controls and first hosted smoke check
 
-After the configured owner identity is verified, open **Owner dashboard**. Create the first class using **Create class** in the semester directory. The owner is not enrolled automatically. Open its semester, choose the section, then use **People → Enroll a student** to add an account that has already signed in. Use the member's role button to appoint a Class Admin. Several admins may coexist. Those admins can then create other classes directly; ordinary students cannot create or request a new class. The old class-approval queue is retired.
+After the configured owner identity is verified, open **Owner dashboard**. Create the first section using **Create section** in the semester directory. The owner is not enrolled automatically. Open its semester, choose the section, then use **People → Enroll a student** to add an account that has already signed in. Use the member's role button to appoint a Class Admin. Several admins may coexist. Those admins create subjects inside their assigned section; only the owner creates sections. Ordinary students cannot create or request a new section. The old class-approval queue is retired.
 
 **App controls** manages the implemented feature switches and read-only maintenance. The separate **Developer** tab manages the introduction and publication. Students open the published **Meet the Developer** page from the sidebar or Get the App. Keep it unpublished until your own content is ready. Existing Tutor data stays legacy-only after upgrading. These are application database settings; never enter service-account keys or R2 credentials in biography, links, or other content fields. See [ROLE_ADMIN_API.md](ROLE_ADMIN_API.md) and [OPERATIONS_API.md](OPERATIONS_API.md).
 
-Test with the owner and two real eligible university accounts in a separate pilot class: verify email delivery, create a class directly as the owner/admin, enroll a registered member, test class-role changes, approve a join request, post all intended announcement scopes, upload/download/delete a non-sensitive test file, replace/remove a profile photo, revoke membership, and confirm denied access. Add an official weekly timetable, verify one-time changes without altering the recurring template, and test personal deadline completion from a second university account. From a university account, prepare offline access while online, reopen the saved timetable without a connection, and verify logout/account switches remove private saved data. The Master console is online-only. Test installation on an actual iPhone and Android browser at the deployed HTTPS origin. Keep this as a small pilot until those provider and device checks pass.
+Test with the owner and two real eligible university accounts in a separate pilot class: verify email delivery, create a section as owner, appoint a Class Admin to create its subjects, enroll a registered member, test role changes, approve a first subject-code request, reject a cross-section request, post all intended announcement scopes, upload/download/delete a non-sensitive test file, replace/remove a profile photo, revoke membership, and confirm denied access. Add an official weekly timetable, verify one-time changes without altering the recurring template, and test personal deadline completion from a second university account. From a university account, prepare offline access while online, reopen the saved timetable without a connection, and verify logout/account switches remove private saved data. The Master console is online-only. Test installation on an actual iPhone and Android browser at the deployed HTTPS origin. Keep this as a small pilot until those provider and device checks pass.
 
 For GitHub-based updates and the Render commands, follow [GITHUB_AND_DEPLOYMENT.md](GITHUB_AND_DEPLOYMENT.md). Do not deploy the local demo configuration.
+
+## K. New optional integrations
+
+For Google sign-in, enable the Google authentication provider and set `FIREBASE_GOOGLE_SIGN_IN_ENABLED=true`. Use [Firebase Google sign-in](https://firebase.google.com/docs/auth/web/google-signin), and verify that the university identity is actually Google-backed. Email/password remains available. Drive scope is requested separately from application sign-in.
+
+In-app reminders need a running Node service, not a model or push account. Optional device push additionally uses `REMINDERS_PUSH_ENABLED`, `FIREBASE_WEB_PUSH_VAPID_KEY` and `FIREBASE_MESSAGING_SENDER_ID` from your Firebase configuration; see [CHECKPOINT_4_CHAT_REMINDERS](CHECKPOINT_4_CHAT_REMINDERS.md). Published Help search works without OpenAI; optional strictly bounded AI uses [HELP_AI](HELP_AI.md).
+
+Use [BACKUP_AND_RESTORE](BACKUP_AND_RESTORE.md) to export and rehearse recovery before an upgrade. Back up database records, the appropriate private object bytes and the Drive encryption key separately. See [CHECKPOINT_4_COSTS_AND_SCALING](CHECKPOINT_4_COSTS_AND_SCALING.md) for current planning allowances and the measured route toward 1,000 users.

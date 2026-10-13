@@ -1,18 +1,14 @@
-# ZabSync — Checkpoint 3, corrected version 0.3.1
+# ZabSync — Checkpoint 4 · version 0.4.0
 
 **Built for Students. Designed for Success**
 
-A mobile-friendly university web application for SZABIST Islamabad. This is the complete, cumulative third checkpoint of five: the previous academic-content, account, profile and installation work is included alongside the new admin model, daily dashboard, timetable, deadlines and offline storage.
+The complete cumulative source and compiled build for the fourth of five checkpoints. ZabSync is a mobile-friendly university app: each student belongs to **one section**, joins **subjects inside that section**, and reads its resources, announcements, deadlines, timetable and subject chat. Class Admins manage their assigned section's teaching content; the Master Admin manages the application through a separate owner console.
 
-## Corrections in 0.3.1
+**Start with [the Checkpoint 4 guide](docs/CHECKPOINT_4_GUIDE.md).** Keep [ZabSync_Project_Context.md](ZabSync_Project_Context.md) for a new chat or developer. It records the current requirements, implementation and remaining release work. This checkpoint supersedes older instructions about students joining multiple classes or Class Admins creating sections.
 
-Students receive join/read controls and their own profile, bookmarks and checklist actions. Shared editing requires a confirmed class-admin membership. The Master Admin now has a separate online console: semester → section → class tools. Owner-created sections do not enroll the owner. A private exact-email/UID exception supports a separate verified Gmail owner while ordinary registration remains university-only.
+## Run locally
 
-The timetable shows the complete week, and **Meet the Developer** is a visible sidebar destination with a dedicated owner editor. Existing SQL data, timetable routines and publication state are preserved. See [the CP3 upgrade guide](docs/UPGRADE_FROM_CHECKPOINT_3.md) and [owner account setup](docs/OWNER_ACCOUNT.md).
-
-## Start here
-
-Install Node.js **24**, extract the project and run these commands from the folder containing `package.json`:
+Install Node.js **24**, extract this ZIP, open the folder containing `package.json`, then run:
 
 ```sh
 npm ci
@@ -20,77 +16,88 @@ npm run setup:demo
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. Use the three fictional demo personas: **Student**, **Class Admin**, and **Master Admin**. For complete Windows/macOS instructions, see [START_HERE](docs/START_HERE.md).
+Open **http://127.0.0.1:5173**. The clearly labelled demo offers fictional Student, Class Admin and Master Admin personas so you can test permissions without provider accounts. Demo mode is restricted to loopback development and refuses public/production operation.
 
-For offline reopening, stop the development server, then run:
+**Real students see sign-in/registration, with no role selector.** The server verifies their university identity. Only the owner appoints Class Admins. Google sign-in is optional and must be enabled in Firebase; verified email/password remains available when a university address is not a Google account. A separately pinned owner email and Firebase UID can use the owner sign-in route.
+
+For the compiled app and offline preparation:
 
 ```sh
 npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:3001**, sign in, visit **Offline access**, and choose **Prepare offline access**. Wait for the app-shell readiness status. The development server does not install a service worker. [Offline guide](docs/OFFLINE.md).
+Open **http://127.0.0.1:3001**, sign in online, open **Offline access**, and choose **Prepare offline access**. Wait for both the snapshot and public app shell to be ready. Development mode on port 5173 deliberately does not install the service worker.
 
-**Upgrading an existing installation?** For 0.3.0 use [UPGRADE_FROM_CHECKPOINT_3](docs/UPGRADE_FROM_CHECKPOINT_3.md); for Checkpoint 1 or 2 read [UPGRADE_FROM_CHECKPOINT_2](docs/UPGRADE_FROM_CHECKPOINT_2.md). Keep your private configuration, database and file store; do not overwrite the new source with the old project.
+More beginner help: [START_HERE](docs/START_HERE.md). Existing installations: [upgrade from Checkpoint 3](docs/UPGRADE_FROM_CHECKPOINT_3.md). Never replace a real database with the demonstration database.
 
-## What is implemented
+## What changed in Checkpoint 4
 
-| Area            | Working behavior                                                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity        | Exact university email-domain and verification checks; Firebase real-account mode; isolated loopback-only demo                                                                  |
-| Roles           | Student, membership-scoped Class Admin, and global Master Admin; prior representative roles migrate to Class Admin                                                              |
-| Classes         | Class Admin or Master creates directly; ordinary students join through an invitation and membership approval; no student class-creation request                                 |
-| Owner directory | Semester → sections → enrolled people; member counts, names, roll numbers where available, stable account IDs; enroll an existing account and grant/revoke Class Admin          |
-| Academic spaces | Customizable subjects, PDF/PPT/PPTX uploads, authenticated downloads, search, bookmarks, trash/restore and permanent file removal                                               |
-| Announcements   | Subject, whole-class and owner-only university-wide notices, attachments, priorities and pinning; in-app notification inbox                                                     |
-| Timetable       | Weekly routine; teacher, room, weekday and time; separate dated extra/cancelled/rescheduled sessions; overlap indicators                                                        |
-| Deadlines       | Quiz, assignment and event dates; personal done/open state; an edited deadline requires acknowledgment of its new version                                                       |
-| Offline         | Explicit device preparation; complete read-only class snapshot for seven days; chosen file blobs; last-sync/expiry/storage indicators; logout/account-change cleanup            |
-| Profiles        | Display name, optional unique username, optional private profile photo with replacement/removal; email and stable ID remain unchanged                                           |
-| Owner controls  | Membership roles, account suspension/restoration, global notices, feature switches, read-only maintenance, audit trail and recycle bin                                          |
-| Developer       | Owner-managed private draft, preview and publication; intro, portfolio, updates and other app links; dedicated Meet the Developer page, linked from the sidebar and Get the App |
-| Installation    | Supplied favicon/home-screen image, manifest, conditional browser install prompt, iPhone instructions, website link sharing and explicit software-update confirmation           |
-| Delivery        | Full source, compiled build, dependency lockfile, automated tests, GitHub CI and beginner configuration/upgrade guides                                                          |
+| Area                     | Implemented behavior                                                                                                                                                                                                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One class, many subjects | My Class and My Subjects replace multiple-class navigation. First subject-code admission requires approval and establishes the student's section. Subsequent subjects must belong to that section. Transfers require the owner.                            |
+| Permissions              | Only the owner creates sections and appoints Class Admins. Class Admins create subjects and manage content in their assigned section. Ordinary students cannot publish shared academic content or edit the timetable.                                      |
+| Subject space            | Separate Resources, Announcements, Deadlines and Chat tabs, all scoped to the opened subject and checked by the API. Whole-section and owner-only global notices remain available.                                                                         |
+| Hybrid storage           | New shared files use the uploader's connected Drive when configured. Private R2/local storage handles avatars, small objects and explicit resource fallback. Chat text and structured records use SQL.                                                     |
+| Drive connection         | Separate one-time consent in My profile; encrypted refresh tokens; private app-created files; reconnect/disconnect; original uploader and revision tracking. Readers do not need to connect Drive.                                                         |
+| Uploads                  | PDF, PPT/PPTX, DOC/DOCX, MP4 and WebM; configurable document, video and section limits; authenticated streamed downloads, bookmarks and chosen offline copies.                                                                                             |
+| Chat                     | Class Admin chooses member posting or admin-only posting. Members can refer to a subject resource, edit/delete their own messages and report messages. Admins can remove messages and temporarily mute students. Both modes remain private to the subject. |
+| Front page               | New ZabSync form generates a Word `.docx` locally using the supplied template. Student/teacher/subject/roll number/date/semester/section fields are filled without sending them to the server.                                                             |
+| GPA/CGPA                 | Local credit-weighted calculator using the supplied grade bands, with previous-credit/CGPA inputs. Blank/invalid marks are rejected and decimal band gaps are corrected.                                                                                   |
+| Reminders                | Per-deadline opt-in, durable jobs and an in-app reminder inbox. Optional Firebase device push, disabled until configured. Delivery rechecks access, consent, deadline version and completion.                                                              |
+| Help                     | Owner-published app/university/developer articles and free local search. Optional bounded OpenAI integration selects approved source articles; it does not expose an unrestricted chatbot.                                                                 |
+| Operations               | Owner usage/health view, failed-reminder retry, storage allowances, controlled orphan cleanup, feature switches, maintenance and audit records. SQL export, inspect, restore and rehearsal commands.                                                       |
 
-Students see the same everyday dashboard; their Class Admin controls appear only where they have permission. A Class Admin cannot assign more admins or gain Master Admin authority. The owner can appoint multiple Class Admins in one class.
+The preceding checkpoints' full-week timetable, dated class changes, personal deadline completion, profile customization, Meet the Developer publishing, notifications, trash/restore, account suspension and PWA installation foundation are retained.
 
-The original separate Tutor destination has been replaced. Historical Tutor database content is preserved privately during upgrade; it is not automatically published as developer information. A legacy `/tutor` link redirects to the separate Meet the Developer page.
+## Important storage distinction
+
+Google sign-in authenticates an account; Drive access needs a separate OAuth consent. A university application account may connect a personal Gmail Drive without changing its verified ZabSync identity. Files count against the **uploader's** Google account, not every reader's account. Existing students reading/downloading notes need no Drive permission.
+
+ZabSync creates files without public sharing and serves authorized downloads through its API. The Google account owner can later share files outside the app, which ZabSync cannot prevent or revoke. Do not share them publicly to bypass permissions. The API host still handles upload/download traffic and temporary files; Drive reduces your stored file bytes, not every hosting cost. There is no silent fallback when Drive fails.
+
+A departing admin's files still depend on that uploader's connection and Google account. The owner must plan a handover or re-upload before the account is disconnected, deleted or filled. Changing the storage setting affects new uploads; it does not migrate old files. See [Google Drive storage](docs/GOOGLE_DRIVE_STORAGE.md) and [costs and scaling](docs/CHECKPOINT_4_COSTS_AND_SCALING.md).
 
 ## Offline behavior
 
-Preparing a device saves academic information for the currently authorized account. The client refuses an incomplete snapshot. A student can browse prepared classes, subject details, notices, weekly/dated timetables and deadlines without a connection. The weekly resolver can show another week from the saved routine and saved dated changes.
+A prepared Student/Class Admin device can reopen the app and read its saved class information, full weekly timetable, dated changes, authorized subject notices/resources and deadlines for up to seven days. Selected resource bytes are separate from bookmarks. The public front-page template is included in the compiled shell; the front-page form and calculator run locally after that shell is cached.
 
-Use **Save offline** on a resource to keep its bytes in the in-app device library. **Bookmark** only saves a reference in your account. **Download** creates a separate file managed by the browser/device. Signing out clears the in-app offline library; it cannot recall a separately downloaded file.
+Chat, new sign-in, joining subjects, admin edits, uploads, reminder scheduling/push permission and current Help search require a connection. Offline screens show the saved timestamp; they are not proof that a timetable or membership has remained unchanged. Online authorization denials never turn into offline access. Logout/account changes clear the app's private offline store, but cannot erase a separate file already downloaded to the device. See [OFFLINE](docs/OFFLINE.md).
 
-Offline use is read-only. New sign-in, class joining, admin controls, profile edits, uploads, bookmark changes and marking deadlines complete require a connection. Prepared access expires after seven days and must be refreshed. Device storage may be evicted by the browser; this is a convenience copy rather than a permanent backup.
+## Project structure
 
-A fresh online identity/access check revalidates saved data. Deleted content, lost membership and disabled features are removed from saved access. An HTTP authentication or authorization denial never grants offline fallback. An already disconnected device cannot learn about a new suspension until it reconnects or the saved-access period expires.
+| Location                                                                | Purpose                                                                |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `client/src/App.tsx`, `pages.tsx`, `AcademicPages.tsx`                  | App shell, My Class/My Subjects and subject content                    |
+| `client/src/PlanningPages.tsx`, `AdminDirectory.tsx`                    | Weekly schedule, deadlines and owner semester/section/people directory |
+| `client/src/ChatPanel.tsx`, `ReminderPanel.tsx`                         | Subject conversation, personal reminders and inbox                     |
+| `client/src/DriveSettings.tsx`, `OperationsPages.tsx`                   | Drive consent, profile, owner controls and developer publishing        |
+| `client/src/StudentToolsPages.tsx`, `student-tools.ts`, `cover-docx.ts` | Branded forms, GPA math and template-preserving Word generation        |
+| `client/public/templates/assignment-cover.docx`                         | Original supplied Word template                                        |
+| `client/src/HelpPage.tsx`, `AdminHelpPanel.tsx`                         | Published help and owner editor                                        |
+| `client/src/offline-*`, `client/public/sw.js`                           | Account-scoped offline data and public app shell                       |
+| `server/section-*.ts`, `academic.ts`, `auth.ts`                         | One-section enrollment, subject authorization and identity             |
+| `server/drive*.ts`, `storage.ts`                                        | Drive OAuth, hybrid private objects, validation and quota accounting   |
+| `server/chat.ts`, `reminders.ts`, `reminder-runner.ts`                  | Chat moderation, durable scheduling and optional device delivery       |
+| `server/help*.ts`, `operations-health.ts`                               | Approved help, bounded AI budgets and owner health summaries           |
+| `server/backup*.ts`, `db.ts`, migration modules                         | Recovery tooling and schema versions 1–12                              |
+| `tests/`, `docs/`, `.github/workflows/`                                 | Regression checks, guides and GitHub CI                                |
 
-The worker caches only public application files; private academic data and explicitly selected file bytes use a separate account-scoped IndexedDB store. Tokens, admin rosters and private profile photos are not placed in that offline store. See [OFFLINE](docs/OFFLINE.md) and [SECURITY_AND_OFFLINE_PLAN](docs/SECURITY_AND_OFFLINE_PLAN.md).
+## Providers and release status
 
-## Structure and providers
+React/TypeScript + Vite; Fastify/Node; local SQLite or compatible remote Turso/libSQL through `@libsql/client`; Firebase Auth; private R2 plus Google Drive. There is no Supabase dependency. Provider configuration names and safe defaults are in `.env.example`; secrets belong only in the backend environment.
 
-React and TypeScript power the interface; Fastify provides the API. SQL uses `@libsql/client`: local SQLite for development, or a compatible remote libSQL/Turso database. Firebase verifies identities. File bytes use a private local directory or private Cloudflare R2. There is no Supabase dependency.
+The cloud integrations are implemented and exercised with controlled provider responses. **Your actual Firebase, Drive, R2, Turso, push and OpenAI accounts have not been connected or tested.** No repository was pushed and no site or APK was published. A thousand registered users is the scaling target, not a measured capacity claim. The final checkpoint includes staging credentials, device checks, workload tests, recovery rehearsal, deployment and Android packaging.
 
-The backend enforces permissions; hiding a button is not its authorization mechanism. Because staff share `szabist-isb.pk`, a verified university address alone does not prove student status. Actual class membership is checked separately. Use an app-specific password, never a university mailbox password.
+| Checkpoint                           | Status                                                                                                                           |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Foundation                        | Included: identities, persistence, basic roles and academic structure                                                            |
+| 2. Content and customization         | Included: files, notices, profiles, owner controls and install foundation                                                        |
+| 3. Student day and offline           | Included: owner directory, timetable, deadlines, Developer page and explicit offline storage                                     |
+| 4. Connected features and operations | This delivery: revised section/subject model, Drive/R2, chat, Word/CGPA, reminders, Help and recovery                            |
+| 5. Release                           | Remaining: configured cloud acceptance, actual iPhone/Android and load tests, deployment, APK/AAB/signing/Play Store preparation |
 
-| Source                                                       | Purpose                                                              |
-| ------------------------------------------------------------ | -------------------------------------------------------------------- |
-| `client/src/App.tsx`, `pages.tsx`, `zabsync.css`             | Application shell, daily dashboard, classes, responsive design       |
-| `client/src/AdminDirectory.tsx`                              | Owner semester/section directory and enrollment                      |
-| `client/src/PlanningPages.tsx`                               | Weekly timetable, one-time changes and deadlines                     |
-| `client/src/AcademicPages.tsx`                               | Subjects, files, notices, saved items and notification inbox         |
-| `client/src/OperationsPages.tsx`                             | Profiles, Developer editor and owner settings                        |
-| `client/src/offline-store.ts`, `offline-data.ts`, `auth.tsx` | Account-scoped persistence, read-only requests and identity boundary |
-| `client/src/OfflinePage.tsx`, `client/public/sw.js`          | Device controls and public shell reopening                           |
-| `server/routes.ts`, `auth.ts`, `operations.ts`               | Identity, classes, directory, admin roles and profile/owner APIs     |
-| `server/timetable.ts`, `schedule.ts`                         | Versioned planning API and shared online/offline date resolver       |
-| `server/offline-access.ts`                                   | Authoritative current-access manifest for offline validation         |
-| `server/storage.ts`, `academic.ts`                           | Private files and academic content APIs                              |
-| `server/db.ts`, migration modules                            | Schema versions 1–6, including upgrade preservation                  |
-| `tests/`, `docs/`, `.github/`                                | Regression checks, beginner guides and CI                            |
-
-## Verify and update
+## Verification and upkeep
 
 ```sh
 npm run build
@@ -98,18 +105,6 @@ npm test
 npm audit
 ```
 
-Build before running the suite so its compiled-asset check actually executes. Each build includes all generated public chunks in the worker's deterministic asset list, including the lazily loaded Firebase code, and writes dependency-license notices.
+The build type-checks both applications, stamps the public offline assets and compiles the API. Test authorization and migration behavior before upgrades, and rehearse backups separately from source updates. Exact performed checks and limitations are recorded in [VERIFICATION](docs/VERIFICATION.md).
 
-Serve this as a **Node web service**, with the client and API on the same origin. A static-only deployment does not supply the backend. GitHub stores source; the SQL database and uploaded files remain in their persistent stores. See [GITHUB_AND_DEPLOYMENT](docs/GITHUB_AND_DEPLOYMENT.md) and [CONFIGURATION_CHECKLIST](docs/CONFIGURATION_CHECKLIST.md).
-
-No cloud accounts, credentials, repository or deployment have been created for you. See [VERIFICATION](docs/VERIFICATION.md) for the exact checks completed and remaining provider/device checks. Automated API, IndexedDB and simulated-DOM checks do not establish physical iPhone/Android behavior or high-concurrency capacity.
-
-## Exactly five checkpoints
-
-1. **Foundation — delivered:** identity, membership, invitations, class structure and basic administration.
-2. **Academic content and customization — delivered:** subjects, files, notices, profiles, owner controls and installation foundation.
-3. **ZabSync and the offline campus day — this delivery:** revised roles, semester directory, Developer placement, redesigned layout, timetable, dated changes, deadlines and explicit offline use.
-4. **Assistance and operations:** scheduled/push reminders, your front-page PDF template, a bounded university/app chatbot, cost/usage controls and backup/recovery work.
-5. **Release:** integrated security/load/device checks, configured deployment, Capacitor Android packaging, signing, APK-link distribution and Play Store preparation.
-
-For Checkpoint 4, supply the front-page example and required fields, approved chatbot knowledge and developer details when you are ready. Enter developer content directly in Master Admin whenever convenient. This ZIP does not contain an Android APK or a promise that all later release checks are already complete.
+Use [BACKUP_AND_RESTORE](docs/BACKUP_AND_RESTORE.md), [CHECKPOINT_4_GUIDE](docs/CHECKPOINT_4_GUIDE.md), [CONFIGURATION_CHECKLIST](docs/CONFIGURATION_CHECKLIST.md), [HELP_AI](docs/HELP_AI.md) and [STUDENT_TOOLS](docs/STUDENT_TOOLS.md). GitHub stores source and configuration examples; the database, private keys and stored files must stay outside the repository.

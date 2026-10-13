@@ -24,6 +24,7 @@ export interface AppConfig {
   firebase: FirebasePublicConfig | null;
   firebaseAdminCredential: { projectId: string; clientEmail: string; privateKey: string } | null;
   firebaseUseApplicationDefault: boolean;
+  googleSignInEnabled: boolean;
   appName: string;
   universityUrl: string;
   timezone: typeof UNIVERSITY_TIMEZONE;
@@ -178,6 +179,7 @@ const envSchema = z.object({
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   FIREBASE_PRIVATE_KEY: z.string().optional(),
   FIREBASE_USE_APPLICATION_DEFAULT: z.enum(['true', 'false']).default('false'),
+  FIREBASE_GOOGLE_SIGN_IN_ENABLED: z.enum(['true', 'false']).default('false'),
   APP_NAME: z.string().default('ZabSync'),
   UNIVERSITY_URL: z.string().url().default('https://szabist-isb.edu.pk/'),
 });
@@ -215,6 +217,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
           }
         : null,
     firebaseUseApplicationDefault: e.FIREBASE_USE_APPLICATION_DEFAULT === 'true',
+    googleSignInEnabled: e.FIREBASE_GOOGLE_SIGN_IN_ENABLED === 'true',
     appName: e.APP_NAME,
     universityUrl: e.UNIVERSITY_URL,
     timezone: UNIVERSITY_TIMEZONE,
@@ -243,6 +246,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         : null,
     firebaseAdminCredential: null,
     firebaseUseApplicationDefault: false,
+    googleSignInEnabled: false,
     appName: 'ZabSync',
     universityUrl: 'https://szabist-isb.edu.pk/',
     timezone: UNIVERSITY_TIMEZONE,

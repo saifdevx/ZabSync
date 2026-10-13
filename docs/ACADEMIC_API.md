@@ -1,5 +1,8 @@
 # Academic API — cumulative Checkpoint 3
 
+> Historical checkpoint reference. For version 0.4.0, the current requirements and routes in [SECTIONS_AND_SUBJECTS](SECTIONS_AND_SUBJECTS.md), [CHECKPOINT_4_GUIDE](CHECKPOINT_4_GUIDE.md) and [project context](../ZabSync_Project_Context.md) take precedence. Only the owner creates sections; student subject enrollment is restricted to one pinned section.
+
+
 All endpoints require `Authorization: Bearer …`. All text is plain text; clients must render it as text, never HTML. UUIDs are identifiers, never access credentials. Server-side authorization uses current account status and current class membership on every route and again inside write transactions.
 
 ## Subjects

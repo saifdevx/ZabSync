@@ -16,14 +16,48 @@ import { ApiError, requireCondition } from './errors.js';
 export const MAX_RESOURCE_BYTES = 25 * 1024 * 1024;
 export const CLASS_STORAGE_BYTES = 100 * 1024 * 1024;
 
+export interface ResourceLimits {
+  documentBytes: number;
+  videoBytes: number;
+  fileBytes: number;
+  classBytes: number;
+}
+
+export function loadResourceLimits(env: NodeJS.ProcessEnv = process.env): ResourceLimits {
+  const mib = (name: string, fallback: number, ceiling: number) => {
+    const value = Number(env[name] || fallback);
+    if (!Number.isSafeInteger(value) || value < 1 || value > ceiling)
+      throw new Error(`${name} must be a whole MiB value from 1 to ${ceiling}.`);
+    return value * 1024 * 1024;
+  };
+  const documentBytes = mib('RESOURCE_MAX_DOCUMENT_MIB', 25, 100);
+  const videoBytes = mib('RESOURCE_MAX_VIDEO_MIB', 100, 500);
+  return {
+    documentBytes,
+    videoBytes,
+    fileBytes: Math.max(documentBytes, videoBytes),
+    classBytes: mib('CLASS_STORAGE_MIB', 500, 102400),
+  };
+}
+
 export interface StorageConfig {
   driver: 'local' | 'r2';
   localDirectory: string;
   r2?: { accountId: string; bucket: string; accessKeyId: string; secretAccessKey: string };
 }
 
+export interface StoragePutContext {
+  userId: string;
+  filename?: string;
+}
+
 export interface PrivateStorage {
-  putFile(key: string, path: string, contentType: string): Promise<void>;
+  putFile(
+    key: string,
+    path: string,
+    contentType: string,
+    context?: StoragePutContext,
+  ): Promise<void>;
   open(key: string): Promise<{ stream: Readable; size: number; contentType?: string }>;
   delete(key: string): Promise<void>;
   close?(): void | Promise<void>;
@@ -315,14 +349,20 @@ async function packageXml(zip: ZipFile, entry: Entry): Promise<string> {
   return xml;
 }
 
-async function inspectPowerPointPackage(path: string): Promise<void> {
+async function inspectOfficePackage(path: string, kind: 'pptx' | 'docx'): Promise<void> {
+  const label = kind === 'pptx' ? 'PowerPoint' : 'Word';
+  const mainPath = kind === 'pptx' ? 'ppt/presentation.xml' : 'word/document.xml';
+  const mainType =
+    kind === 'pptx'
+      ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml'
+      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml';
   return new Promise((resolvePromise, reject) => {
     openZip(
       path,
       { lazyEntries: true, validateEntrySizes: true, strictFileNames: true, autoClose: true },
       (error, zip) => {
         if (error || !zip) {
-          reject(new ApiError(400, 'invalid_file_type', 'This is not a valid PowerPoint package.'));
+          reject(new ApiError(400, 'invalid_file_type', `This is not a valid ${label} package.`));
           return;
         }
         let count = 0,
@@ -339,7 +379,7 @@ async function inspectPowerPointPackage(path: string): Promise<void> {
             new ApiError(
               400,
               'invalid_file_type',
-              'This PowerPoint package is unsupported or unsafe.',
+              `This ${label} package is unsupported or unsafe.`,
             ),
           );
         };
@@ -360,28 +400,35 @@ async function inspectPowerPointPackage(path: string): Promise<void> {
               name,
             ) ||
             name.startsWith('ppt/embeddings/') ||
+            name.startsWith('word/embeddings/') ||
             name.includes('activex')
           ) {
             fail();
             return;
           }
           names.add(name);
-          if (name === '[content_types].xml' || name === 'ppt/presentation.xml') {
+          if (name === '[content_types].xml' || name === mainPath) {
             void packageXml(zip, entry)
               .then((xml) => {
                 if (settled) return;
                 if (name === '[content_types].xml') {
                   hasContentTypes =
                     /<(?:[A-Za-z][\w.-]*:)?Types\b/.test(xml) &&
-                    xml.includes(
-                      'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml',
-                    ) &&
+                    xml.includes(mainType) &&
                     !/macroEnabled|vbaProject|activeX/i.test(xml);
                 } else {
                   hasPresentation =
-                    /<(?:[A-Za-z][\w.-]*:)?presentation\b/.test(xml) &&
-                    (xml.includes('http://schemas.openxmlformats.org/presentationml/2006/main') ||
-                      xml.includes('http://purl.oclc.org/ooxml/presentationml/main'));
+                    kind === 'pptx'
+                      ? /<(?:[A-Za-z][\w.-]*:)?presentation\b/.test(xml) &&
+                        (xml.includes(
+                          'http://schemas.openxmlformats.org/presentationml/2006/main',
+                        ) ||
+                          xml.includes('http://purl.oclc.org/ooxml/presentationml/main'))
+                      : /<(?:[A-Za-z][\w.-]*:)?document\b/.test(xml) &&
+                        (xml.includes(
+                          'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                        ) ||
+                          xml.includes('http://purl.oclc.org/ooxml/wordprocessingml/main'));
                 }
                 zip.readEntry();
               })
@@ -403,13 +450,22 @@ async function inspectPowerPointPackage(path: string): Promise<void> {
 
 export async function validateResourceFile(
   upload: Pick<TemporaryUpload, 'path' | 'filename' | 'size'>,
+  limits: ResourceLimits = loadResourceLimits({}),
 ): Promise<string> {
   const extension = extname(upload.filename).toLowerCase();
   requireCondition(
-    ['.pdf', '.ppt', '.pptx'].includes(extension),
+    ['.pdf', '.ppt', '.pptx', '.doc', '.docx', '.mp4', '.webm'].includes(extension),
     415,
     'unsupported_file_type',
-    'Upload a PDF, PPT or PPTX lecture file.',
+    'Upload a PDF, PPT, PPTX, DOC, DOCX, MP4 or WebM resource.',
+  );
+  requireCondition(
+    upload.size > 0 &&
+      upload.size <=
+        (['.mp4', '.webm'].includes(extension) ? limits.videoBytes : limits.documentBytes),
+    413,
+    'file_too_large',
+    'This file exceeds the configured document or video upload limit.',
   );
   const handle = await openFile(upload.path, 'r');
   const head = Buffer.alloc(16);
@@ -430,21 +486,118 @@ export async function validateResourceFile(
     );
     return 'application/pdf';
   }
-  if (extension === '.ppt') {
+  if (extension === '.mp4') {
+    await inspectMp4(upload.path, upload.size);
+    return 'video/mp4';
+  }
+  if (extension === '.webm') {
+    await inspectWebM(upload.path, upload.size);
+    return 'video/webm';
+  }
+  if (extension === '.ppt' || extension === '.doc') {
     requireCondition(
       upload.size >= 512 && head.subarray(0, 8).equals(Buffer.from('d0cf11e0a1b11ae1', 'hex')),
       400,
       'invalid_file_type',
-      'This file does not look like a legacy PowerPoint document.',
+      'This file does not look like a legacy Office document.',
     );
-    return 'application/vnd.ms-powerpoint';
+    return extension === '.ppt' ? 'application/vnd.ms-powerpoint' : 'application/msword';
   }
   requireCondition(
     head.subarray(0, 4).equals(Buffer.from('504b0304', 'hex')),
     400,
     'invalid_file_type',
-    'This file does not look like a PowerPoint package.',
+    'This file does not look like an Office document package.',
   );
-  await inspectPowerPointPackage(upload.path);
-  return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  await inspectOfficePackage(upload.path, extension === '.pptx' ? 'pptx' : 'docx');
+  return extension === '.pptx'
+    ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+}
+
+/** Structural container checks only: uploaded media is always an attachment, never executable web content. */
+async function inspectMp4(path: string, size: number): Promise<void> {
+  const handle = await openFile(path, 'r');
+  let position = 0,
+    boxes = 0,
+    ftyp = false,
+    moov = false,
+    mdat = false;
+  const fail = () =>
+    new ApiError(400, 'invalid_file_type', 'This file does not look like a complete MP4 video.');
+  try {
+    while (position < size) {
+      if (++boxes > 100_000 || position + 8 > size) throw fail();
+      const head = Buffer.alloc(16);
+      const read = await handle.read(head, 0, Math.min(16, size - position), position);
+      if (read.bytesRead < 8) throw fail();
+      let length = head.readUInt32BE(0),
+        header = 8;
+      if (length === 1) {
+        if (read.bytesRead < 16) throw fail();
+        const large = head.readBigUInt64BE(8);
+        if (large > BigInt(Number.MAX_SAFE_INTEGER)) throw fail();
+        length = Number(large);
+        header = 16;
+      } else if (length === 0) length = size - position;
+      if (length < header || position + length > size) throw fail();
+      const type = head.toString('ascii', 4, 8);
+      if (type === 'ftyp') {
+        if (position !== 0 || length < 16 || length > 4096) throw fail();
+        const brands = Buffer.alloc(length - 8);
+        await handle.read(brands, 0, brands.length, position + 8);
+        ftyp = /isom|iso[2-9]|mp4[12]|avc1|M4V |dash/.test(brands.toString('ascii'));
+      }
+      if (type === 'moov' && length > header) moov = true;
+      if (type === 'mdat' && length > header) mdat = true;
+      position += length;
+    }
+    if (!ftyp || !moov || !mdat) throw fail();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function inspectWebM(path: string, size: number): Promise<void> {
+  const handle = await openFile(path, 'r'),
+    head = Buffer.alloc(Math.min(size, 4096));
+  try {
+    await handle.read(head, 0, head.length, 0);
+  } finally {
+    await handle.close();
+  }
+  const fail = () =>
+    new ApiError(400, 'invalid_file_type', 'This file does not look like a WebM video.');
+  if (head.length < 16 || !head.subarray(0, 4).equals(Buffer.from('1a45dfa3', 'hex'))) throw fail();
+  function vint(offset: number, keepMarker = false): { length: number; value: number } {
+    const first = head[offset];
+    if (!first) throw fail();
+    let length = 1,
+      marker = 0x80;
+    while (!(first & marker) && length <= 8) {
+      marker >>= 1;
+      length++;
+    }
+    if (length > 8 || offset + length > head.length) throw fail();
+    let value = keepMarker ? first : first & (marker - 1);
+    for (let i = 1; i < length; i++) value = value * 256 + head[offset + i]!;
+    if (!Number.isSafeInteger(value)) throw fail();
+    return { length, value };
+  }
+  const length = vint(4),
+    end = 4 + length.length + length.value;
+  if (end + 4 > head.length) throw fail();
+  let position = 4 + length.length,
+    webm = false;
+  while (position < end) {
+    const id = vint(position, true);
+    position += id.length;
+    const len = vint(position);
+    position += len.length;
+    if (position + len.value > end) throw fail();
+    if (id.value === 0x4282)
+      webm = head.toString('ascii', position, position + len.value) === 'webm';
+    position += len.value;
+  }
+  if (!webm || !head.subarray(end, end + 4).equals(Buffer.from('18538067', 'hex'))) throw fail();
 }

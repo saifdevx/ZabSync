@@ -1,3 +1,4 @@
+import { DEMO_SUBJECT_IDS } from '../server/academic.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -307,7 +308,7 @@ test('maintenance pauses non-owner writes through existing APIs while reads and 
     },
     {
       method: 'POST' as const,
-      url: `/api/classes/${DEMO_CLASS_ID}/invite`,
+      url: `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite`,
       headers: bearer(admin),
     },
     {

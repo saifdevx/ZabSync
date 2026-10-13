@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,6 +9,9 @@ import {
   Bookmark,
   Check,
   CheckCheck,
+  CheckSquare2,
+  MessageCircle,
+  KeyRound,
   ChevronRight,
   Download,
   FileText,
@@ -34,6 +37,7 @@ import {
   EmptyState,
   ErrorNotice,
   Modal,
+  CopyButton,
   Pagination,
   Spinner,
   formatDate,
@@ -42,6 +46,8 @@ import {
 import { contentChanged, queryString, useApi, useDebounced } from './hooks';
 import { useSite } from './site';
 import { OfflineSaveButton } from './OfflinePage';
+import { ChatPanel } from './ChatPanel';
+import { DeadlinesPanel } from './PlanningPages';
 import { canManageAcademic, isMaster } from './permissions';
 import type {
   Announcement,
@@ -533,7 +539,7 @@ export function SubjectsPanel({
                 ? 'Deleted subjects will appear here.'
                 : canManage
                   ? 'Add your first course above. You can choose a name, instructor, and color.'
-                  : 'Your class admin will add the courses for this class.'}
+                  : 'Use Join a subject to enter a code from your class admin.'}
           </EmptyState>
         </div>
       )}
@@ -1175,12 +1181,14 @@ function ResourceForm({
   classId,
   subjectId,
   initial,
+  limits,
   onClose,
   onDone,
 }: {
   classId: string;
   subjectId?: string;
   initial?: Resource;
+  limits?: ResourceListData['limits'];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -1194,6 +1202,10 @@ function ResourceForm({
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const documentBytes =
+    limits?.documentBytes ?? Math.min(limits?.fileBytes ?? Infinity, 25 * 1024 * 1024);
+  const videoBytes =
+    limits?.videoBytes ?? Math.min(limits?.fileBytes ?? Infinity, 100 * 1024 * 1024);
   const subjects = useApi<SubjectList>(
     site.settings?.features.subjects !== false && !subjectId && !initial
       ? `/classes/${classId}/subjects?limit=100`
@@ -1207,7 +1219,7 @@ function ResourceForm({
       description={
         initial
           ? 'Update its title and description. Upload a new file if the document itself has changed.'
-          : 'PDF, PPT, or PPTX · Up to 25 MB per file'
+          : `PDF, PowerPoint, Word · ${formatBytes(documentBytes)} · MP4/WebM video · ${formatBytes(videoBytes)}`
       }
       onClose={() => {
         if (!busy) onClose();
@@ -1227,8 +1239,12 @@ function ResourceForm({
               });
             else {
               if (!file) throw new Error('Choose a lecture file.');
-              if (file.size > 25 * 1024 * 1024)
-                throw new Error('Choose a file smaller than 25 MB.');
+              const video = /\.(mp4|webm)$/i.test(file.name);
+              const maximumBytes = video ? videoBytes : documentBytes;
+              if (file.size > maximumBytes)
+                throw new Error(
+                  `Choose a ${video ? 'video' : 'document'} no larger than ${formatBytes(maximumBytes)}.`,
+                );
               const form = new FormData();
               form.append('title', title.trim());
               form.append('description', description.trim());
@@ -1254,14 +1270,12 @@ function ResourceForm({
           <label className="upload-picker">
             <UploadCloud size={32} />
             <strong>{file ? file.name : 'Choose a lecture file'}</strong>
-            <span>
-              {file ? formatBytes(file.size) : 'PDF documents and PowerPoint presentations'}
-            </span>
+            <span>{file ? formatBytes(file.size) : 'PDF, PowerPoint, Word, MP4, or WebM'}</span>
             <input
               type="file"
               aria-label="Lecture file"
               required
-              accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              accept=".pdf,.ppt,.pptx,.doc,.docx,.mp4,.webm,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,video/mp4,video/webm"
               disabled={busy}
               onChange={(e) => {
                 const next = e.target.files?.[0] ?? null;
@@ -1310,8 +1324,11 @@ function ResourceForm({
           <div className="info-box">
             <FileText size={19} />
             <p>
-              This file is available to approved members of this class. Upload course material you
-              have permission to share.
+              {selectedSubject
+                ? 'This file is available to students enrolled in this subject.'
+                : 'This file is available to approved members of your section.'}{' '}
+              Upload course material you have permission to share. Connect or manage Google Drive in{' '}
+              <Link to="/account">Account</Link> when Drive storage is enabled.
             </p>
           </div>
         )}
@@ -1585,7 +1602,7 @@ export function ResourcesPanel({
                 : deleted
                   ? 'Files you move to trash will appear here.'
                   : canManage
-                    ? 'Upload a PDF or PowerPoint for your class.'
+                    ? 'Upload a document or video for your section or subject.'
                     : 'Your class admins will share lecture files here.'}
           </EmptyState>
         </div>
@@ -1594,6 +1611,7 @@ export function ResourcesPanel({
         <ResourceForm
           classId={classId}
           subjectId={subjectId}
+          limits={state.data?.limits}
           onClose={() => setCreate(false)}
           onDone={() => {
             setCreate(false);
@@ -1668,22 +1686,110 @@ export function TrashPanel({
   );
 }
 
+function SubjectInvitePanel({ subjectId, onClose }: { subjectId: string; onClose: () => void }) {
+  const auth = useAuth(),
+    toast = useToast();
+  const state = useApi<{ invite: { expiresAt: string; active: boolean } | null }>(
+    `/subjects/${subjectId}/invite`,
+  );
+  const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  async function update(method: 'POST' | 'DELETE') {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await auth.request<{ code: string; expiresAt: string }>(
+        `/subjects/${subjectId}/invite`,
+        { method },
+      );
+      setCode(method === 'POST' ? result : null);
+      state.reload();
+      toast(method === 'POST' ? 'Subject code created.' : 'Subject code revoked.');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title="Subject join code"
+      description="Share this only with students in your section. A first-time request needs section approval."
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <div className="form-stack">
+        <p>
+          Each code expires after seven days. Replacing or revoking it does not remove enrolled
+          students.
+        </p>
+        {code && (
+          <div className="invite-result">
+            <div className="invite-code">{code.code}</div>
+            <CopyButton value={code.code} label="Copy subject code" />
+            <p>
+              Expires {formatDate(code.expiresAt, true)}. Copy it now; the complete code is shown
+              only once.
+            </p>
+          </div>
+        )}
+        {!code && state.data?.invite?.active && (
+          <p>A code is active until {formatDate(state.data.invite.expiresAt, true)}.</p>
+        )}
+        <ErrorNotice message={error || state.error} />
+        <div className="modal-actions">
+          <button
+            className="button button-secondary"
+            disabled={busy || !state.data?.invite?.active}
+            onClick={() => void update('DELETE')}
+          >
+            Revoke code
+          </button>
+          <button
+            className="button button-primary"
+            disabled={busy}
+            onClick={() => void update('POST')}
+          >
+            {busy ? <LoaderCircle className="spin" size={17} /> : <KeyRound size={17} />}Create new
+            code
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function SubjectPage() {
   const { subjectId = '', classId: routeClassId } = useParams();
   const auth = useAuth();
   const location = useLocation();
   const state = useApi<{ subject: Subject }>(`/subjects/${encodeURIComponent(subjectId)}`);
   const permission = useAcademicPermission(state.data?.subject.classId);
-  const [tab, setTab] = useState<'announcements' | 'resources'>('announcements');
+  const [searchParams, setSearchParams] = useSearchParams();
+  type SubjectTab = 'announcements' | 'resources' | 'deadlines' | 'chat';
+  const requestedTab = searchParams.get('tab');
+  const tab: SubjectTab = ['resources', 'deadlines', 'chat'].includes(requestedTab ?? '')
+    ? (requestedTab as SubjectTab)
+    : 'announcements';
+  function setTab(nextTab: SubjectTab) {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set('tab', nextTab);
+      return next;
+    });
+  }
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
+  const [share, setShare] = useState(false);
   if (state.loading) return <Spinner label="Opening subject…" />;
   if (state.error || !state.data)
     return (
       <>
-        <Link className="back-link" to={isMaster(auth.me) ? '/admin' : '/classes'}>
+        <Link className="back-link" to={isMaster(auth.me) ? '/admin' : '/subjects'}>
           <ArrowLeft size={16} />
-          {isMaster(auth.me) ? 'Owner dashboard' : 'My classes'}
+          {isMaster(auth.me) ? 'Owner dashboard' : 'My Subjects'}
         </Link>
         <ErrorNotice message={state.error || 'This subject is unavailable.'} retry={state.reload} />
       </>
@@ -1691,14 +1797,16 @@ export function SubjectPage() {
   const subject = state.data.subject;
   const owner = isMaster(auth.me);
   if (owner && (!location.pathname.startsWith('/admin/') || routeClassId !== subject.classId))
-    return <Navigate to={subjectPath(true, subject.classId, subject.id)} replace />;
+    return (
+      <Navigate
+        to={`${subjectPath(true, subject.classId, subject.id)}${location.search}`}
+        replace
+      />
+    );
   const canManage = subject.canManage === true && permission;
   return (
     <>
-      <Link
-        className="back-link"
-        to={owner ? `/admin/classes/${subject.classId}` : `/classes/${subject.classId}`}
-      >
+      <Link className="back-link" to={owner ? `/admin/classes/${subject.classId}` : '/subjects'}>
         <ArrowLeft size={16} />
         {subject.className}
       </Link>
@@ -1719,6 +1827,10 @@ export function SubjectPage() {
         </div>
         {canManage && (
           <div className="content-actions">
+            <button className="button button-secondary button-small" onClick={() => setShare(true)}>
+              <KeyRound size={16} />
+              Subject code
+            </button>
             <button className="button button-secondary button-small" onClick={() => setEdit(true)}>
               <Pencil size={16} />
               Edit subject
@@ -1745,15 +1857,29 @@ export function SubjectPage() {
           <FolderOpen size={17} />
           Resources
         </button>
+        <button className={tab === 'deadlines' ? 'active' : ''} onClick={() => setTab('deadlines')}>
+          <CheckSquare2 size={17} />
+          Deadlines
+        </button>
+        <button className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>
+          <MessageCircle size={17} />
+          Chat
+        </button>
       </div>
-      {tab === 'announcements' ? (
+      {tab === 'announcements' && (
         <AnnouncementBoard
           classId={subject.classId}
           subjectId={subject.id}
           allowCreate={canManage}
         />
-      ) : (
+      )}
+      {tab === 'resources' && (
         <ResourcesPanel classId={subject.classId} subjectId={subject.id} canManage={canManage} />
+      )}
+      {tab === 'deadlines' && <DeadlinesPanel classId={subject.classId} subjectId={subject.id} />}
+      {tab === 'chat' && <ChatPanel subjectId={subject.id} />}
+      {share && canManage && (
+        <SubjectInvitePanel subjectId={subject.id} onClose={() => setShare(false)} />
       )}
       {edit && canManage && (
         <SubjectForm
@@ -2064,8 +2190,8 @@ export function NotificationsPage() {
       )}
       <p className="page-hint">
         <Bell size={15} />
-        These are in-app notifications. Push notifications and deadline reminders are planned for a
-        future update.
+        Your announcement updates appear here. Choose personal deadline alerts in Reminders; device
+        notifications are optional when enabled by the application owner.
       </p>
     </>
   );

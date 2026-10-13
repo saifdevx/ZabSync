@@ -65,7 +65,7 @@ export interface SubjectList {
 export interface ResourceListData {
   resources: Resource[];
   pagination: PageMeta;
-  limits: { fileBytes: number; classBytes: number };
+  limits: { fileBytes: number; classBytes: number; documentBytes?: number; videoBytes?: number };
 }
 export interface AnnouncementListData {
   announcements: Announcement[];

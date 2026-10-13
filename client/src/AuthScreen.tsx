@@ -25,7 +25,7 @@ const personas: { id: Persona; title: string; subtitle: string; icon: typeof Use
   {
     id: 'student',
     title: 'Student',
-    subtitle: 'Your classes, timetable, and saved resources',
+    subtitle: 'Your subjects, timetable, and saved resources',
     icon: GraduationCap,
   },
   {
@@ -225,6 +225,39 @@ export function AuthScreen() {
                   >
                     Create account
                   </button>
+                </div>
+              )}
+              {auth.config?.googleSignInEnabled && mode !== 'reset' && (
+                <div className="form-stack google-signin-option">
+                  <button
+                    type="button"
+                    className="button button-secondary button-full"
+                    disabled={!!busy}
+                    onClick={async () => {
+                      setBusy('google');
+                      setError('');
+                      try {
+                        await auth.googleLogin(mode === 'owner');
+                      } catch (reason) {
+                        setError(errorMessage(reason));
+                      } finally {
+                        setBusy('');
+                      }
+                    }}
+                  >
+                    {busy === 'google' ? (
+                      <LoaderCircle size={18} className="spin" />
+                    ) : (
+                      <Mail size={18} />
+                    )}
+                    Continue with Google
+                  </button>
+                  <small className="muted">
+                    {mode === 'owner'
+                      ? 'Your privately configured owner account only.'
+                      : 'Choose your university Google account. You can connect personal Drive after sign-in.'}
+                  </small>
+                  <span className="muted">Or use your university email and app password</span>
                 </div>
               )}
               <form className="form-stack" onSubmit={submit}>

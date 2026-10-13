@@ -260,7 +260,7 @@ test('checkpoint 2 data upgrades additively to multiple admins and a private emp
     (await rows(db, 'SELECT version FROM schema_migrations ORDER BY version')).map(
       (row) => row.version,
     ),
-    [1, 2, 3, 4, 5, 6],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   );
   const settings = await getSettings(db);
   assert.equal(settings.version, 8);
@@ -272,6 +272,11 @@ test('checkpoint 2 data upgrades additively to multiple admins and a private emp
     profilePhotos: false,
     timetable: true,
     deadlines: true,
+    chat: true,
+    reminders: true,
+    frontPage: true,
+    cgpa: true,
+    help: true,
   });
   assert.equal(settings.maintenance.message, 'My customized maintenance message');
   assert.equal((await first(db, 'SELECT COUNT(*) AS n FROM timetable_entries'))?.n, 0);
@@ -300,7 +305,7 @@ test('checkpoint 2 data upgrades additively to multiple admins and a private emp
       headers: bearer(`demo_preserved_${id}`),
     });
     expectSuccess(response);
-    assert.equal(response.json().canCreateClass, true);
+    assert.equal(response.json().canCreateClass, false);
     assert.equal(response.json().classes[0].role, 'admin');
     assert.equal(response.json().user.id, id);
     assert.equal(response.json().user.role, 'student');

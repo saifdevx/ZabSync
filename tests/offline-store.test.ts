@@ -44,7 +44,7 @@ async function fixture(t: TestContext) {
 const isCode = (code: string) => (error: unknown) =>
   error instanceof OfflineStorageError && error.code === code;
 
-test('legacy owner snapshots cannot reopen and promotion to owner clears prepared private files', async (t) => {
+test('legacy owner and pre-section snapshots cannot reopen and promotion to owner clears prepared private files', async (t) => {
   const { store, factory, snapshot, resource } = await fixture(t);
   const ownerSnapshot = structuredClone(snapshot);
   ownerSnapshot.me.user.role = 'master';
@@ -54,28 +54,36 @@ test('legacy owner snapshots cannot reopen and promotion to owner clears prepare
     () => offlineResponse(ownerSnapshot, '/me', offlineNow),
     isCode('OFFLINE_OWNER_DISABLED'),
   );
-  await store.commit(lease, snapshot);
-  await store.saveFile(lease, resource, new Blob([pdf]));
-  // Reproduce data written by 0.3.0, whose IndexedDB schema allowed owner snapshots.
-  const db = await new Promise<IDBDatabase>((resolve, reject) => {
-    const open = factory.open(OFFLINE_DATABASE, 1);
-    open.onsuccess = () => resolve(open.result);
-    open.onerror = () => reject(open.error);
-  });
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put(ownerSnapshot);
-      tx.oncomplete = () => resolve();
-      tx.onabort = () => reject(tx.error);
-      tx.onerror = () => reject(tx.error);
+  const preSectionSnapshot = { ...structuredClone(snapshot), schemaVersion: 1 };
+  assert.throws(
+    () => offlineResponse(preSectionSnapshot as unknown as typeof snapshot, '/me', offlineNow),
+    isCode('OFFLINE_UPGRADE_REQUIRED'),
+  );
+  for (const legacy of [ownerSnapshot, preSectionSnapshot]) {
+    const currentLease = await store.activateVerifiedAccount(snapshot.userId);
+    await store.commit(currentLease, snapshot);
+    await store.saveFile(currentLease, resource, new Blob([pdf]));
+    // Reproduce records written before owner and one-section access safeguards existed.
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const open = factory.open(OFFLINE_DATABASE, 1);
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
     });
-  } finally {
-    db.close();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('snapshots', 'readwrite');
+        tx.objectStore('snapshots').put(legacy);
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(tx.error);
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+    assert.equal(await store.snapshot(), null);
+    assert.equal(await store.active(), null);
+    assert.deepEqual(await store.listFiles(snapshot.userId), []);
   }
-  assert.equal(await store.snapshot(), null);
-  assert.equal(await store.active(), null);
-  assert.deepEqual(await store.listFiles(snapshot.userId), []);
   const newLease = await store.activateVerifiedAccount(snapshot.userId);
   await store.commit(newLease, snapshot);
   await store.saveFile(newLease, resource, new Blob([pdf]));

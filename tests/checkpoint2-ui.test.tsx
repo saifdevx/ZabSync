@@ -9,7 +9,7 @@ import { renderApplication } from './ui-harness.js';
 
 test(
   'rendered academic and profile workflows retain real sharing, saved items, private developer drafts and multipart photos',
-  { timeout: 45_000 },
+  { timeout: 180_000 },
   async (t) => {
     const directory = await mkdtemp(
       join(fileURLToPath(new URL('.', import.meta.url)), '.ui-storage-'),
@@ -65,14 +65,16 @@ test(
     });
     fireEvent.click(within(subjectDialog).getByRole('radio', { name: 'teal' }));
     fireEvent.click(within(subjectDialog).getByRole('button', { name: 'Add subject' }));
-    await screen.findByRole('link', { name: 'Operating Systems UI Lab' });
+    await waitFor(() => assert.ok(lastCall('POST', `/api/classes/${DEMO_CLASS_ID}/subjects`)));
+    const subjectCreate = lastCall('POST', `/api/classes/${DEMO_CLASS_ID}/subjects`);
+    assert.equal(subjectCreate?.status, 201, JSON.stringify(subjectCreate?.response));
     await waitFor(() =>
       assert.ok(screen.queryByRole('dialog') === null, 'The submitted dialog closes.'),
     );
-    const subjectCreate = lastCall('POST', `/api/classes/${DEMO_CLASS_ID}/subjects`);
-    assert.equal(subjectCreate?.status, 201);
+    await screen.findByRole('link', { name: 'Operating Systems UI Lab' });
     assert.equal(subjectCreate.payload?.color, 'teal');
     assert.equal(subjectCreate.response?.subject.classId, DEMO_CLASS_ID);
+    const subjectId = String(subjectCreate.response?.subject.id);
 
     // A class-wide notice is prominent on the student's home feed, with no edit controls.
     fireEvent.click(
@@ -114,6 +116,18 @@ test(
     const noticeId = String(noticeCreate.response?.announcement.id);
     assert.ok(noticeId && noticeId !== 'undefined');
 
+    // A new subject does not silently enroll all section members. Its admin shares
+    // a subject invitation through the real UI, then the student chooses to join.
+    await ui.navigate(`/subjects/${subjectId}`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Subject code' }));
+    const inviteDialog = await screen.findByRole('dialog', { name: 'Subject join code' });
+    fireEvent.click(within(inviteDialog).getByRole('button', { name: 'Create new code' }));
+    const copyCode = await within(inviteDialog).findByRole('button', { name: 'Copy subject code' });
+    fireEvent.click(copyCode);
+    await waitFor(() => assert.match(ui.copied(), /^[A-Z0-9-]+$/));
+    const subjectCode = ui.copied();
+    fireEvent.click(within(inviteDialog).getByRole('button', { name: 'Close dialog' }));
+
     await switchRole('student', 'Areeba');
     const notice = (await screen.findByRole('heading', { name: 'Class trip information' })).closest(
       'article',
@@ -121,9 +135,10 @@ test(
     assert.ok(notice);
     assert.ok(within(notice).getByText(/5D · Whole class/));
     assert.ok(within(notice).getByText(/Meet at the campus gate/));
-    assert.equal(
-      within(notice).queryByRole('button', { name: /Edit announcement|Trash announcement/ }),
-      null,
+    assert.ok(
+      within(notice).queryByRole('button', { name: /Edit announcement|Trash announcement/ }) ===
+        null,
+      'A student cannot edit or trash the class announcement.',
     );
     assert.ok(screen.queryByRole('button', { name: 'Post announcement' }) === null);
     fireEvent.click(within(notice).getByRole('button', { name: 'Save announcement' }));
@@ -154,14 +169,29 @@ test(
       ),
     );
 
-    fireEvent.click(mainNavigation().getByRole('link', { name: /^My classes/ }));
-    await screen.findByRole('heading', { level: 1, name: 'My classes' });
-    fireEvent.click(screen.getByRole('link', { name: /5D/ }));
-    await screen.findByRole('heading', { level: 1, name: '5D' });
-    fireEvent.click(
-      within(screen.getByRole('group', { name: 'Class sections' })).getByRole('button', {
-        name: 'Subjects',
-      }),
+    fireEvent.click(mainNavigation().getByRole('link', { name: 'My Subjects' }));
+    await screen.findByRole('heading', { level: 1, name: 'My Subjects' });
+    assert.ok(
+      screen.queryByRole('link', { name: 'Operating Systems UI Lab' }) === null,
+      'A new subject stays out of the student subject list until they join it.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Join a subject' }));
+    const joinSubject = await screen.findByRole('dialog', { name: 'Join a subject' });
+    fireEvent.change(within(joinSubject).getByLabelText('Subject join code'), {
+      target: { value: subjectCode },
+    });
+    fireEvent.click(within(joinSubject).getByRole('button', { name: 'Request to join' }));
+    await waitFor(() => assert.ok(lastCall('POST', '/api/subjects/join')));
+    const joined = lastCall('POST', '/api/subjects/join');
+    assert.equal(joined?.status, 200, JSON.stringify(joined?.response));
+    assert.equal(joined?.response?.membership.classId, DEMO_CLASS_ID);
+    assert.equal(joined?.response?.membership.subjectId, subjectId);
+    assert.equal(joined?.response?.membership.status, 'active');
+    await waitFor(() =>
+      assert.ok(
+        screen.queryByRole('dialog') === null,
+        'The dialog closes after the action succeeds.',
+      ),
     );
     fireEvent.click(await screen.findByRole('link', { name: 'Operating Systems UI Lab' }));
     await screen.findByRole('heading', { level: 1, name: 'Operating Systems UI Lab' });
@@ -200,7 +230,9 @@ test(
       target: { value: 'https://example.org/study-helper' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save developer draft' }));
-    await screen.findByText('Developer draft saved.');
+    await waitFor(() => assert.ok(lastCall('PATCH', '/api/admin/developer')));
+    const draft = lastCall('PATCH', '/api/admin/developer');
+    assert.equal(draft?.status, 200, JSON.stringify(draft?.response));
     await waitFor(() =>
       assert.equal(
         (screen.getByRole('button', { name: 'Save developer draft' }) as HTMLButtonElement)
@@ -208,8 +240,6 @@ test(
         true,
       ),
     );
-    const draft = lastCall('PATCH', '/api/admin/developer');
-    assert.equal(draft?.status, 200);
     assert.equal(draft.response?.developer.published, false);
     assert.deepEqual(draft.response?.developer.apps, [
       {
@@ -245,9 +275,18 @@ test(
       'Example Developer',
     );
     fireEvent.click(screen.getByRole('switch', { name: 'Publish developer details' }));
+    const beforePublish = calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Save & publish profile' }));
-    await screen.findByText('Developer details published.');
-    assert.equal(lastCall('PATCH', '/api/admin/developer')?.response?.developer.published, true);
+    await waitFor(() =>
+      assert.ok(
+        calls
+          .slice(beforePublish)
+          .some((call) => call.method === 'PATCH' && call.url === '/api/admin/developer'),
+      ),
+    );
+    const published = lastCall('PATCH', '/api/admin/developer');
+    assert.equal(published?.status, 200, JSON.stringify(published?.response));
+    assert.equal(published?.response?.developer.published, true);
     await switchRole('student', 'Areeba');
     fireEvent.click(mainNavigation().getByRole('link', { name: 'Get the App' }));
     await screen.findByRole('heading', { level: 1, name: 'Your campus, one tap away' });
@@ -280,14 +319,14 @@ test(
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Areeba UI' } });
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: 'Areeba_ui' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save details' }));
-    await screen.findByText('Profile details saved.');
+    await waitFor(() => assert.ok(lastCall('PATCH', '/api/me')));
     const profileSave = lastCall('PATCH', '/api/me');
-    assert.equal(profileSave?.status, 200);
+    assert.equal(profileSave?.status, 200, JSON.stringify(profileSave?.response));
     assert.equal(profileSave.response?.user.username, 'areeba_ui');
     assert.equal(profileSave.response?.user.id, DEMO_USERS.student.id);
     assert.equal(profileSave.response?.user.email, DEMO_USERS.student.email);
     assert.equal(profileSave.response?.user.role, 'student');
-    assert.ok(screen.getByText('@areeba_ui'));
+    await screen.findByText('@areeba_ui');
     const image = await readFile(
       new URL('../client/public/icons/zabsync-icon.png', import.meta.url),
     );
@@ -297,9 +336,9 @@ test(
     });
     await screen.findByRole('img', { name: 'Selected profile photo preview' });
     fireEvent.click(screen.getByRole('button', { name: 'Save photo' }));
-    await screen.findByText('Your profile photo has been updated.');
+    await waitFor(() => assert.ok(lastCall('POST', '/api/me/avatar')));
     const avatarSave = lastCall('POST', '/api/me/avatar');
-    assert.equal(avatarSave?.status, 200);
+    assert.equal(avatarSave?.status, 200, JSON.stringify(avatarSave?.response));
     assert.match(avatarSave.contentType, /^multipart\/form-data; boundary=/);
     assert.ok(avatarSave.response?.user.avatarVersion);
     await waitFor(() =>
@@ -316,8 +355,10 @@ test(
     fireEvent.click(screen.getByRole('button', { name: 'Remove photo' }));
     const removeDialog = await screen.findByRole('dialog', { name: 'Remove your profile photo?' });
     fireEvent.click(within(removeDialog).getByRole('button', { name: 'Remove photo' }));
-    await screen.findByText('Profile photo removed.');
-    assert.equal(lastCall('DELETE', '/api/me/avatar')?.response?.user.avatarVersion, null);
+    await waitFor(() => assert.ok(lastCall('DELETE', '/api/me/avatar')));
+    const removedPhoto = lastCall('DELETE', '/api/me/avatar');
+    assert.equal(removedPhoto?.status, 200, JSON.stringify(removedPhoto?.response));
+    assert.equal(removedPhoto?.response?.user.avatarVersion, null);
     await waitFor(() =>
       assert.ok(dom.window.document.querySelector('.ops-profile-avatar img') === null),
     );

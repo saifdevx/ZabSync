@@ -13,7 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useAuth, errorMessage } from './auth';
-import { useApi } from './hooks';
+import { useApi, contentChanged } from './hooks';
 import { EmptyState, ErrorNotice, Modal, Pagination, Spinner, useToast } from './components';
 import type { AdminOverview, ClassFields } from './types';
 import { isMaster } from './permissions';
@@ -116,8 +116,8 @@ export function SemesterDirectory() {
             })}
           </div>
           <p className="page-hint">
-            Enrollment totals count each class membership. A student in two classes is counted in
-            each class.
+            Each student has one active section. Older accounts with conflicting sections stay
+            private until you resolve their section using Enroll or transfer a student.
           </p>
         </>
       ) : (
@@ -129,7 +129,7 @@ export function SemesterDirectory() {
           <div className="section-heading">
             <div>
               <span className="eyebrow">MASTER ADMIN / SEMESTER {semester}</span>
-              <h2>Sections & classes</h2>
+              <h2>Sections</h2>
             </div>
             <span className="count-pill">{all.get(semester)?.classCount ?? 0} sections</span>
           </div>
@@ -170,7 +170,7 @@ export function SemesterDirectory() {
               icon={<GraduationCap size={28} />}
               title="No sections in this semester yet."
             >
-              Use Create class to add the first section.
+              Use Create section to add the first section.
             </EmptyState>
           )}
           {sections.data && (
@@ -198,10 +198,13 @@ export function AddEnrolledStudent({
   if (!isMaster(auth.me) || auth.offline) return null;
   return (
     <div className="enroll-action">
-      <p>Add an existing registered account, then choose its class role below.</p>
+      <p>
+        Enroll an unassigned account, or explicitly transfer it from an older section. Then choose
+        its class role below.
+      </p>
       <button className="button button-secondary button-small" onClick={() => setOpen(true)}>
         <UserPlus size={17} />
-        Enroll a student
+        Enroll or transfer a student
       </button>
       {open && (
         <EnrollModal classId={classId} onClose={() => setOpen(false)} onChanged={onChanged} />
@@ -224,6 +227,7 @@ function EnrollModal({
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [transfer, setTransfer] = useState<{ id: string; displayName: string } | null>(null);
   const state = useApi<AdminOverview>(`/admin/overview?limit=50&offset=${offset}`);
   const users =
     state.data?.users.filter(
@@ -232,6 +236,18 @@ function EnrollModal({
         u.role === 'student' &&
         `${u.displayName} ${u.email} ${u.id}`.toLowerCase().includes(query.toLowerCase()),
     ) ?? [];
+  if (transfer)
+    return (
+      <SectionTransferDialog
+        user={transfer}
+        classId={classId}
+        onClose={() => setTransfer(null)}
+        onChanged={() => {
+          onChanged();
+          onClose();
+        }}
+      />
+    );
   return (
     <Modal
       title="Enroll a registered student"
@@ -288,6 +304,9 @@ function EnrollModal({
                 )}
                 Enroll
               </button>
+              <button className="text-button" disabled={!!busy} onClick={() => setTransfer(u)}>
+                Transfer / resolve
+              </button>
             </div>
           ))}
           {!users.length && <p className="muted">No active matching accounts on this page.</p>}
@@ -303,6 +322,142 @@ function EnrollModal({
             setQuery('');
           }}
         />
+      )}
+    </Modal>
+  );
+}
+
+function SectionTransferDialog({
+  user,
+  classId,
+  onClose,
+  onChanged,
+}: {
+  user: { id: string; displayName: string };
+  classId: string;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const auth = useAuth(),
+    toast = useToast();
+  const state = useApi<{
+    section: {
+      classId: string | null;
+      pendingClassId: string | null;
+      needsResolution: boolean;
+      version: number;
+    };
+    memberships: { classId: string; className: string; role: string; status: string }[];
+  }>(`/admin/users/${encodeURIComponent(user.id)}/section`);
+  const subjects = useApi<{ subjects: { id: string; name: string }[] }>(
+    `/classes/${classId}/subjects?limit=100`,
+  );
+  const [reason, setReason] = useState(''),
+    [selected, setSelected] = useState<string[]>([]),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  return (
+    <Modal
+      title={`Confirm section for ${user.displayName}`}
+      description="This is an explicit owner transfer. Historical records remain; previous section access and admin authority are removed."
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      {state.loading ? (
+        <Spinner />
+      ) : (
+        <form
+          className="form-stack"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!state.data) return;
+            setBusy(true);
+            setError('');
+            try {
+              await auth.request(`/admin/users/${encodeURIComponent(user.id)}/section`, {
+                method: 'PUT',
+                body: JSON.stringify({
+                  classId,
+                  version: state.data.section.version,
+                  reason,
+                  subjectIds: selected,
+                }),
+              });
+              contentChanged();
+              toast('Section assignment saved. Appoint an admin separately if needed.');
+              onChanged();
+            } catch (e) {
+              setError(errorMessage(e));
+              state.reload();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <p>
+            {state.data?.section.needsResolution
+              ? 'This older account has conflicting section records.'
+              : 'Review the current section history before saving.'}
+          </p>
+          <ul>
+            {state.data?.memberships.map((m) => (
+              <li key={m.classId}>
+                {m.className} — {m.status} · {m.role}
+              </li>
+            ))}
+          </ul>
+          <p>
+            The destination is the section you opened. The student will have a Student role here.
+            Existing subject enrollment in this section is retained; optionally add the subjects
+            below.
+          </p>
+          <fieldset>
+            <legend>Enroll in subjects in this section</legend>
+            {subjects.data?.subjects.map((s) => (
+              <label className="checkbox-row" key={s.id}>
+                <input
+                  type="checkbox"
+                  checked={selected.includes(s.id)}
+                  onChange={(e) =>
+                    setSelected((v) =>
+                      e.target.checked ? [...v, s.id] : v.filter((id) => id !== s.id),
+                    )
+                  }
+                />
+                {s.name}
+              </label>
+            ))}
+          </fieldset>
+          <label>
+            Reason for this assignment
+            <textarea
+              value={reason}
+              required
+              minLength={5}
+              maxLength={500}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="For example: confirmed semester 5 section D with the student."
+            />
+          </label>
+          <ErrorNotice message={error || state.error || subjects.error} />
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={busy}
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              className="button button-primary"
+              disabled={busy || !state.data || !!state.error}
+            >
+              Confirm section assignment
+            </button>
+          </div>
+        </form>
       )}
     </Modal>
   );

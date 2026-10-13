@@ -10,6 +10,7 @@ export type TransportCall = {
   contentType: string;
   payload?: Record<string, unknown>;
   status: number;
+  durationMs?: number;
   response?: Record<string, any>;
 };
 
@@ -24,6 +25,22 @@ export async function renderApplication(
     initialPath?: string;
   } = {},
 ) {
+  const traceEnabled = process.env.ZABSYNC_UI_TRACE === '1';
+  const trace = (phase: string, details: unknown = {}) => {
+    if (traceEnabled) console.error(`[ui-trace] ${phase} ${JSON.stringify(details)}`);
+  };
+  let diagnosticSnapshot: () => unknown = () => ({ phase: 'initializing' });
+  trace('initialize');
+  const traceTimer = traceEnabled
+    ? setInterval(() => trace('pending snapshot', diagnosticSnapshot()), 10_000)
+    : undefined;
+  traceTimer?.unref();
+  const traceAbort = () => trace('test aborted', diagnosticSnapshot());
+  t.signal.addEventListener('abort', traceAbort, { once: true });
+  t.after(() => {
+    clearInterval(traceTimer);
+    t.signal.removeEventListener('abort', traceAbort);
+  });
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost:5173',
     pretendToBeVisual: true,
@@ -83,11 +100,19 @@ export async function renderApplication(
     },
   });
   const pendingRequests = new Set<Promise<Response>>();
+  const pendingDetails = new Map<
+    Promise<Response>,
+    { method: string; url: string; startedAt: number }
+  >();
+  const transportFailures: { method: string; url: string; name: string }[] = [];
   let cleanupReact = () => {};
+  let resetTestingConfig = () => {};
   t.after(async () => {
+    trace('cleanup start', diagnosticSnapshot());
     cleanupReact();
     await Promise.allSettled([...pendingRequests]);
     await new Promise<void>((resolve) => setImmediate(resolve));
+    resetTestingConfig();
     dom.window.close();
     for (const [key, descriptor] of descriptors) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -95,12 +120,14 @@ export async function renderApplication(
     }
   });
   const app = options.app ?? (await createTestApp(t, options.appOptions));
+  trace('API initialized');
   if (options.app)
     t.after(async () => {
       await app.close();
     });
   const calls: TransportCall[] = [];
   const requestTransport = (async (input, init = {}) => {
+    const startedAt = Date.now();
     const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(path, dom.window.location.href);
     assert.equal(
@@ -110,7 +137,8 @@ export async function renderApplication(
     );
     assert.ok(url.pathname.startsWith('/api/'), 'UI transport accepts only the application API.');
     const serialized = new NativeRequest(url, init);
-    const method = serialized.method as 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    const method = serialized.method as 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+    trace('request', { method, path: `${url.pathname}${url.search}` });
     const headers = Object.fromEntries(new Headers(serialized.headers).entries());
     headers.host = 'localhost:3001';
     headers.origin = dom.window.location.origin;
@@ -123,6 +151,12 @@ export async function renderApplication(
       ...(bytes ? { payload: bytes } : {}),
     });
     const json = String(result.headers['content-type'] ?? '').includes('application/json');
+    trace('response', {
+      method,
+      path: `${url.pathname}${url.search}`,
+      status: result.statusCode,
+      elapsedMs: Date.now() - startedAt,
+    });
     calls.push({
       method,
       url: `${url.pathname}${url.search}`,
@@ -132,6 +166,7 @@ export async function renderApplication(
           ? JSON.parse(bytes.toString())
           : undefined,
       status: result.statusCode,
+      durationMs: Date.now() - startedAt,
       response: json ? result.json() : undefined,
     });
     return new NativeResponse(
@@ -146,11 +181,32 @@ export async function renderApplication(
     );
   }) satisfies typeof fetch;
   installGlobal('fetch', ((input, init) => {
+    const target = new URL(
+      typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+      dom.window.location.href,
+    );
+    const detail = {
+      method: init?.method ?? (input instanceof NativeRequest ? input.method : 'GET'),
+      url: `${target.pathname}${target.search}`,
+      startedAt: Date.now(),
+    };
     const pending = requestTransport(input, init);
     pendingRequests.add(pending);
+    pendingDetails.set(pending, detail);
     void pending.then(
-      () => pendingRequests.delete(pending),
-      () => pendingRequests.delete(pending),
+      () => {
+        pendingRequests.delete(pending);
+        pendingDetails.delete(pending);
+      },
+      (error) => {
+        pendingRequests.delete(pending);
+        pendingDetails.delete(pending);
+        transportFailures.push({
+          method: detail.method,
+          url: detail.url,
+          name: error instanceof Error ? error.name : 'UnknownError',
+        });
+      },
     );
     return pending;
   }) satisfies typeof fetch);
@@ -163,7 +219,8 @@ export async function renderApplication(
     import('../client/src/components.js'),
     import('../client/src/App.js'),
   ]);
-  const { render, screen, fireEvent, waitFor, within, configure } = testing;
+  trace('UI imports initialized');
+  const { render, screen, fireEvent, waitFor, within, configure, getConfig, prettyDOM } = testing;
   let navigateTo!: ReturnType<typeof router.useNavigate>;
   let currentRoute = '';
   function RouteProbe() {
@@ -173,7 +230,53 @@ export async function renderApplication(
     return null;
   }
   cleanupReact = testing.cleanup;
-  configure({ asyncUtilTimeout: 5_000 });
+  const compactText = (element: Element) =>
+    element.textContent?.replace(/\s+/g, ' ').trim().slice(0, 180) ?? '';
+  const diagnostics = () => ({
+    route: currentRoute,
+    headings: [...dom.window.document.querySelectorAll('h1,h2,h3')].map(compactText).slice(0, 18),
+    messages: [...dom.window.document.querySelectorAll('[role="status"],[role="alert"]')]
+      .map(compactText)
+      .slice(0, 8),
+    pending: [...pendingDetails.values()].map(({ method, url, startedAt }) => ({
+      method,
+      url,
+      elapsedMs: Date.now() - startedAt,
+    })),
+    recentCalls: calls.slice(-14).map(({ method, url, status, durationMs, response }) => ({
+      method,
+      url,
+      status,
+      durationMs,
+      ...(response?.error?.code ? { errorCode: response.error.code } : {}),
+    })),
+    errorResponses: calls
+      .filter((call) => call.status >= 400)
+      .slice(-8)
+      .map(({ method, url, status, response }) => ({
+        method,
+        url,
+        status,
+        errorCode: response?.error?.code,
+      })),
+    transportFailures: transportFailures.slice(-8),
+  });
+  diagnosticSnapshot = diagnostics;
+  const previousTestingConfig = getConfig();
+  resetTestingConfig = () => configure(previousTestingConfig);
+  configure({
+    // These journeys include real SQL, identity refreshes, and React rendering on a shared runtime.
+    // A longer async budget still requires the exact heading/control and all API assertions.
+    asyncUtilTimeout: 15_000,
+    getElementError(message, container) {
+      const main = dom.window.document.querySelector('#main-content') ?? container;
+      const error = new Error(
+        `${message ?? 'Element lookup failed.'}\n\nUI diagnostics:\n${JSON.stringify(diagnostics(), null, 2)}\n\nMain content:\n${prettyDOM(main, 3500, { highlight: false }) ?? ''}`,
+      );
+      error.name = 'TestingLibraryElementError';
+      return error;
+    },
+  });
   render(
     React.createElement(
       router.MemoryRouter,
@@ -219,7 +322,7 @@ export async function renderApplication(
     assert.deepEqual(
       calls.filter((call) => call.status >= 400),
       [],
-      'All rendered actions must complete without unexpected API errors.',
+      `All rendered actions must complete without unexpected API errors.\n${JSON.stringify(diagnostics(), null, 2)}`,
     );
   return {
     dom,
@@ -233,12 +336,15 @@ export async function renderApplication(
     switchRole,
     lastCall,
     assertNoApiErrors,
+    diagnostics,
     NativeFile,
     copied: () => copiedText,
     navigate: async (path: string) => {
+      trace('navigate start', { path });
       await testing.act(async () => {
         navigateTo(path);
       });
+      trace('navigate end', { path });
     },
     currentPath: () => currentRoute,
   };

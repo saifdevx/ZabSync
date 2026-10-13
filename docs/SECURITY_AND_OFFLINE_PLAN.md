@@ -1,5 +1,8 @@
 # ZabSync security and offline behavior — Checkpoint 3
 
+> Historical checkpoint reference. For version 0.4.0, the current requirements and routes in [SECTIONS_AND_SUBJECTS](SECTIONS_AND_SUBJECTS.md), [CHECKPOINT_4_GUIDE](CHECKPOINT_4_GUIDE.md) and [project context](../ZabSync_Project_Context.md) take precedence. Only the owner creates sections; student subject enrollment is restricted to one pinned section.
+
+
 This document records the protections and limits implemented in the current cumulative release. It also identifies work that still requires configured live services, real devices, production operations, or later checkpoints. Security depends on server permissions and deployment configuration as well as the interface.
 
 ## Identity, university eligibility, and class permissions

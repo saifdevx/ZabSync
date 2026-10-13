@@ -4,7 +4,7 @@ import { bearer, createTestApp, demoToken, expectSuccess } from './helpers.js';
 
 test('simultaneous duplicate class creation attempts produce one class and one conflict without a database error', async (t) => {
   const app = await createTestApp(t);
-  const student = await demoToken(app, 'admin');
+  const student = await demoToken(app, 'master');
   const fields = {
     name: 'Concurrent 6F',
     program: 'BS Computer Science',
@@ -30,10 +30,15 @@ test('simultaneous duplicate class creation attempts produce one class and one c
   );
   const profile = await app.inject({ method: 'GET', url: '/api/me', headers: bearer(student) });
   expectSuccess(profile);
-  const classes = profile.json<{ classes: { name: string; role: string }[] }>().classes;
+  assert.deepEqual(profile.json().classes, [], 'Owner-created sections do not enroll the owner.');
+  const directory = await app.inject({
+    method: 'GET',
+    url: '/api/admin/overview',
+    headers: bearer(student),
+  });
+  expectSuccess(directory);
   assert.equal(
-    classes.filter((classroom) => classroom.name === fields.name && classroom.role === 'admin')
-      .length,
+    directory.json().classes.filter((c: { name: string }) => c.name === fields.name).length,
     1,
   );
 });

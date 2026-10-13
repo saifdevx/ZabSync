@@ -1,127 +1,137 @@
-# Checkpoint 3 verification record
+# Checkpoint 4 verification record
 
-Date: **11 October 2026**. Application: **ZabSync, version 0.3.1**. Tagline: **Built for Students. Designed for Success**.
-
-This record covers the corrected, cumulative Checkpoint 3 v0.3.1 source delivery; it does not advance the project to Checkpoint 4. It distinguishes automated local verification from live-provider, rendered-browser and physical-device checks still required before a student pilot.
+**ZabSync 0.4.0 — verified locally on 12 October 2026.** This record supersedes the Checkpoint 3 report. It distinguishes automated local checks from the live-account, rendered-browser, physical-device and capacity checks still required before a student release.
 
 ## Final results
 
-| Check                              | Observed result                                                                                                                                   |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime                            | Node.js **24.19.0**; project supports Node 24                                                                                                     |
-| Client and server TypeScript       | Passed through `npm run build`                                                                                                                    |
-| Production client and compiled API | Passed; compiled files included in the ZIP                                                                                                        |
-| Public offline build               | Build **`373c50fe3e422cd4`**; 12 public assets, including every emitted JavaScript/CSS chunk; no unresolved worker markers                        |
-| Full cumulative suite              | **104 passed, 0 failed, 0 skipped, 0 cancelled, 0 todo**; 24.39 seconds in this environment                                                       |
-| Rendered React regressions         | Six actual app/API journeys passed; strict transport checks reported no unexpected HTTP errors                                                    |
-| Offline checks                     | Account-scoped store/snapshot/AuthProvider/worker checks and authorized server manifests are included in the 104 total                            |
-| Fresh beginner demo setup          | `npm run setup:demo` succeeded with a new local configuration                                                                                     |
-| Migration command                  | `npm run db:migrate` succeeded; six schema versions recorded and zero user accounts created by migration                                          |
-| Previous-version preservation      | Frozen CP1 and CP2 databases upgraded successfully; repeat migration and foreign-key checks passed                                                |
-| Dependency audit                   | `npm audit --json` reported **0 known vulnerabilities**, including development dependencies                                                       |
-| Supplied favicon                   | Original 447 × 447 PNG preserved byte-for-byte; wrapper and manifest dimensions checked                                                           |
-| Delivery archive                   | Integrity, required source/build/test/documentation entries, icon bytes, and exclusion of configuration/data/dependencies checked before delivery |
+| Check                                  | Result                                                                                                                                                |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client and server TypeScript           | Passed through `npm run build`                                                                                                                        |
+| Production client and server build     | Passed; web build `6f1bc5362741da58`; 14 approved public offline assets                                                                               |
+| Cumulative isolated automated coverage | **42/42 current test files completed; 161 tests passed, 0 failed, 0 skipped, 0 cancelled, 0 todo**; 1467.84 seconds summed across their TAP durations |
+| Dependency audit                       | `npm audit --json`: **0 known reported vulnerabilities**, including development dependencies, at the time of the check                                |
+| Compiled HTTP smoke                    | **6 passed** against an actual loopback listener: home, public configuration, front-page route, CGPA route, Word template and service worker          |
+| Database upgrade and recovery          | Migrations 1–12, earlier-checkpoint preservation, conflicts and SQL export/restore rehearsal covered by the suite                                     |
+| Word output                            | Template package fidelity and field validation tests passed; normal and long-input documents rendered to one page and visually inspected              |
+| Package portability                    | All 519 resolved dependency URLs use the public npm registry; no private mirror, credential-bearing or workspace package URLs                         |
 
-The npm audit describes known package advisories at validation time. It does not establish that application logic, providers, deployment configuration or future dependency updates are defect-free. The only npm warning in the final test log concerns the execution environment's `http-proxy` option; there are no React `act` warnings or failed test cases.
+**Cumulative coverage was validated in isolated per-file runs.** Each current test file has its own complete TAP plan and summary, a successful process exit, no timeout, and zero failures, cancellations, skips or todo tests. Each file and log is credited once. The groups used separate runners; the summed durations are not one end-to-end wall-clock duration or a production performance/capacity benchmark.
 
-## Identity, roles and the owner directory
+**The combined suite attempt was inconclusive.** It exited with status 1 and its recorded TAP output ended before a final summary. That attempt is not counted as a passing run. This record does not claim that one invocation of `npm test` completed successfully; its automated results come from the complete isolated records listed below.
 
-The suite uses the actual Fastify routes and SQL authorization. It checks verified exact-domain email eligibility, lookalike rejection, immutable account identity, explicit owner bootstrap and denial of forged identity headers. Since university staff share the email domain, an eligible verified mailbox is not treated as proof of approved class membership.
+The isolated runs exposed an outdated static-app expectation for the previous checkpoint's cache version. That test now checks the intended version 4 cache name while retaining the build-stamp and asset/API checks. The weekly timetable journey also received the same 180-second overall allowance used by the other long UI journeys; its 15-second individual condition waits and all assertions remain unchanged. Its final isolated run completed the test body in 34.79 seconds, with no transport errors and no network calls during offline week navigation. Both earlier unsuccessful records were preserved separately and are not counted as passes.
 
-The revised model is covered end to end:
+The HTTP check validates status codes, content types, nonempty responses, the template's SHA-256 and the current service-worker build stamp. It uses a temporary in-memory database, opens and closes its own local server, and does not contact the owner's cloud accounts.
 
-- Ordinary students cannot create classes or call the retired creation-approval endpoints.
-- A current Class Admin or Master Admin creates a class directly. An archived membership cannot authorize creation.
-- Class Admin permissions remain scoped to their class. A class membership does not confer global ownership.
-- Only the owner appoints or demotes admins. Multiple admins are allowed; changes affect an existing session immediately.
-- The owner browses semester counts, sections and complete paginated rosters, then enrolls an existing active account and changes its class role.
-- Owner/admin records expose authorized roll numbers, names and full stable IDs. Ordinary students receive a minimal roster without peer email addresses, invitations or pending-request data.
-- Invitations, joining approval, suspension, archived classes and cross-class reads retain their authorization boundaries.
+## Complete automated test file inventory
 
-For the dedicated owner account, the tests require the exact verified external email and pinned Firebase UID; public configuration discloses neither value. Ordinary external identities remain rejected. Updating private owner settings does not silently replace an existing owner. The explicit transfer preview makes no data changes, and apply rechecks the current owner within one audited transaction. Tests preserve existing memberships/history and verify rollback if the audit write fails. No real Firebase account or ownership transfer was performed.
+The report is generated only after all 42 current `tests/*.test.ts` and `tests/*.test.tsx` files are accounted for. Counts and durations below are parsed from the individual TAP logs and checked against their runner records. All rows have exit status 0 and zero failed, cancelled, skipped or todo tests.
 
-New owner-created classes have zero members and no owner enrollment. Owner self-joining, direct enrollment, class-role appointment and approval of an old pending join request are rejected. Historical memberships are preserved. Normal class-list endpoints stay enrolled-only; global inventory remains in the owner directory.
+| Test file                                                                                 | Tests passed | TAP duration (seconds) |
+| ----------------------------------------------------------------------------------------- | -----------: | ---------------------: |
+| [tests/academic-storage.test.ts](../tests/academic-storage.test.ts)                       |            4 |                  37.67 |
+| [tests/academic.test.ts](../tests/academic.test.ts)                                       |           11 |                  37.33 |
+| [tests/access-control.test.ts](../tests/access-control.test.ts)                           |            4 |                  27.24 |
+| [tests/backup.test.ts](../tests/backup.test.ts)                                           |            8 |                  89.54 |
+| [tests/chat-help-ui.test.tsx](../tests/chat-help-ui.test.tsx)                             |            1 |                  86.17 |
+| [tests/chat.test.ts](../tests/chat.test.ts)                                               |            6 |                  56.86 |
+| [tests/checkpoint-upgrade.test.ts](../tests/checkpoint-upgrade.test.ts)                   |            1 |                  69.05 |
+| [tests/checkpoint2-ui.test.tsx](../tests/checkpoint2-ui.test.tsx)                         |            1 |                 175.76 |
+| [tests/checkpoint2-upgrade.test.ts](../tests/checkpoint2-upgrade.test.ts)                 |            1 |                  53.18 |
+| [tests/checkpoint3-ui.test.tsx](../tests/checkpoint3-ui.test.tsx)                         |            1 |                 103.69 |
+| [tests/class-workflow.test.ts](../tests/class-workflow.test.ts)                           |            3 |                  18.72 |
+| [tests/concurrent-writes.test.ts](../tests/concurrent-writes.test.ts)                     |            1 |                  34.52 |
+| [tests/demo-boundaries.test.ts](../tests/demo-boundaries.test.ts)                         |            4 |                  23.92 |
+| [tests/drive.test.ts](../tests/drive.test.ts)                                             |           13 |                  13.41 |
+| [tests/feature-controls-ui.test.tsx](../tests/feature-controls-ui.test.tsx)               |            1 |                  20.89 |
+| [tests/firebase-boundary.test.ts](../tests/firebase-boundary.test.ts)                     |            3 |                  11.31 |
+| [tests/frontend-permissions.test.ts](../tests/frontend-permissions.test.ts)               |            1 |                  17.01 |
+| [tests/help-assistant.test.ts](../tests/help-assistant.test.ts)                           |            4 |                  10.35 |
+| [tests/help.test.ts](../tests/help.test.ts)                                               |            5 |                  19.41 |
+| [tests/identity-policy.test.ts](../tests/identity-policy.test.ts)                         |            9 |                  17.58 |
+| [tests/invites.test.ts](../tests/invites.test.ts)                                         |            2 |                  15.04 |
+| [tests/offline-auth.test.tsx](../tests/offline-auth.test.tsx)                             |            1 |                  13.15 |
+| [tests/offline-data.test.ts](../tests/offline-data.test.ts)                               |            5 |                  37.99 |
+| [tests/offline-manifest.test.ts](../tests/offline-manifest.test.ts)                       |            2 |                   7.16 |
+| [tests/offline-store.test.ts](../tests/offline-store.test.ts)                             |            8 |                  34.24 |
+| [tests/operations-health.test.ts](../tests/operations-health.test.ts)                     |            2 |                  25.51 |
+| [tests/operations.test.ts](../tests/operations.test.ts)                                   |            8 |                  14.24 |
+| [tests/owner-account.test.ts](../tests/owner-account.test.ts)                             |            3 |                  37.31 |
+| [tests/owner-hierarchy.test.ts](../tests/owner-hierarchy.test.ts)                         |            1 |                   5.73 |
+| [tests/pwa.test.ts](../tests/pwa.test.ts)                                                 |            7 |                   7.11 |
+| [tests/rate-limits.test.ts](../tests/rate-limits.test.ts)                                 |            3 |                   3.96 |
+| [tests/reminders.test.ts](../tests/reminders.test.ts)                                     |            8 |                  10.78 |
+| [tests/representatives.test.ts](../tests/representatives.test.ts)                         |            4 |                  12.44 |
+| [tests/resource-formats.test.ts](../tests/resource-formats.test.ts)                       |            2 |                   2.54 |
+| [tests/role-boundaries-ui.test.tsx](../tests/role-boundaries-ui.test.tsx)                 |            1 |                  52.76 |
+| [tests/section-upgrade.test.ts](../tests/section-upgrade.test.ts)                         |            1 |                   9.94 |
+| [tests/static-app.test.ts](../tests/static-app.test.ts)                                   |            1 |                  19.86 |
+| [tests/student-content-permissions.test.ts](../tests/student-content-permissions.test.ts) |            1 |                  14.97 |
+| [tests/student-tools.test.ts](../tests/student-tools.test.ts)                             |            5 |                   2.33 |
+| [tests/timetable.test.ts](../tests/timetable.test.ts)                                     |           12 |                  61.66 |
+| [tests/ui.test.tsx](../tests/ui.test.tsx)                                                 |            1 |                  74.15 |
+| [tests/weekly-timetable-ui.test.tsx](../tests/weekly-timetable-ui.test.tsx)               |            1 |                  81.36 |
+| **Total: 42 unique files**                                                                |      **161** |            **1467.84** |
 
-A direct-request regression attempts **32 valid student mutations** across classes, invitations, subjects, actual multipart lecture uploads, class/subject/global announcements, timetable routines, dated changes and shared deadlines. All are denied, without changes to content, versions, audit entries or file storage. Personal deadline completion remains permitted and isolated.
+The completed earlier isolated run for tests/access-control.test.ts was reused and counted once. Its original TAP duration is included; copying the log is not treated as another test run.
 
-The local demo rejects public listeners, remote peers, hostile Host/origin headers and production configuration. Firebase-boundary tests use an explicit test-only verifier seam and then run the real account and membership logic. Production refuses that seam. This is not live Firebase signature, mail-delivery or token-revocation verification.
+## Identity and permission checks
 
-## Academic content, planning and operations
+The suite checks verified university-domain admission, the separately pinned owner email/UID, rejection of unauthorized or suspended accounts, production rejection of local demo authentication, and current server permissions instead of browser-selected roles. Real Firebase verification is substituted only through an explicitly injected test seam that cannot be enabled by an HTTP request or used in production.
 
-Existing academic checks cover subjects, private document bytes, actual multipart uploads, three announcement audiences, attachments, bookmarks, search, personal read state, trash/restore and retryable permanent deletion. Lost membership or deleted parents remove content from feeds and downloads. File quotas include trashed objects. Upload tests cover format rejection, the 25 MiB boundary, permission changes during upload and cleanup after failed storage writes. Format checking is not antivirus certification.
+Section tests exercise first-subject admission and approval, one current section per student, same-section subject codes, rejection of cross-section access, owner-only section creation and transfer, Class Admin subject creation, role changes and legacy membership conflicts. The old class-code path is retired. Owner-directory counts and access boundaries are tested after reducing overview data queries from fourteen to five round trips.
 
-Timetable tests exercise weekly CRUD, teacher/day/time fields, class/subject scope, impossible dates and times, separate extra/cancelled/rescheduled sessions, cross-week changes and overlap indicators. The shared resolver uses Asia/Karachi and produces equivalent online/offline weeks. Version checks prevent stale edits from silently overwriting newer changes. Deadlines have versioned personal completion: one student's checklist does not change another student's state, and a changed deadline requires acknowledgment of its new version.
+Academic tests cover subject resources, notices, deadlines and the full section timetable; archive/trash/restore and quotas; cross-subject references; permission changes during uploads; and feature/maintenance controls across read, write and offline surfaces. Student controls do not confer administrative permission.
 
-Operations checks cover display names and unique handles without changing account identity; decoded, re-encoded private photos and cleanup; suspension/restoration; read-only maintenance with owner recovery; feature flags; and audit records. Developer content starts private, rejects unsafe links and stale saves, and becomes student-visible only after publication. Students open the separate Meet the Developer page from the sidebar or Get the App; its unpublished/disabled states do not expose private drafts. The owner uses the dedicated Developer tab.
+## Storage and Google Drive
 
-Authenticated rate-limit checks distinguish classmates behind a shared IP, retain a user's quota across token rotation and reject forged forwarding/identity headers. This is not a sustained concurrency benchmark or validation of a particular hosting proxy.
+Local provider tests cover allowed file types and sizes, authenticated downloads, reservation/usage accounting, rejected-upload cleanup and tracked orphan cleanup. Drive tests exercise one-use OAuth state, browser binding, PKCE, encrypted refresh grants, callback validation, reconnection races, original-uploader/revision tracking, revocation and provider failures. They use controlled provider responses, not a real personal Google account.
 
-## Actual React/API interaction tests
+R2 remains private binary storage and an explicitly selected resource alternative. A Drive error does not silently redirect an academic upload to R2. SQL stores chat messages and structured application records. The unit tests do not prove cloud-account configuration, external sharing behavior, provider quotas or network availability.
 
-The six UI journey files render the real React application, router, authentication provider and forms in jsdom. Requests use the actual Fastify application, SQLite database, native multipart serialization and private file storage. API responses are not replaced with fixed mock data. The transport rejects external calls and records unexpected HTTP errors.
+## Chat, reminders and Help
 
-The journeys cover direct admin class creation and invitation copying; subjects/notices and student read-only views; bookmarks; Developer draft/preview/publication; real profile photo upload/removal; the owner's semester-to-roster workflow; enrollment and promotion/demotion; weekly editing; a moved occurrence's destination link; explicit clearing of rescheduled teacher/room fields; and personal deadline completion.
+Chat tests check member versus admin-only posting within private subjects, same-subject resource references, edits/deletes, reports, timed mutes, page cursors, persistent write limits and stale-page attempts during maintenance.
 
-The feature-controls regression verifies feature controls during both initial loading and a deliberately delayed real settings response. Disabled subject, resource, timetable and photo APIs are never requested. Existing noticeboard input nodes, search text and audience selection survive a settings refresh. Header and roster avatars respect a disabled photo feature even when a stored avatar version exists.
+Reminder tests check personal opt-in, durable jobs and outbox/inbox records, lease/retry behavior, deduplication, changed deadlines and permissions, completed reminders and safe push payload contracts. No live FCM notification was sent.
 
-The correction adds the sibling-class permission and owner-navigation journey: a Class Admin remains read-only in another enrolled section, the owner has no student/Offline navigation, legacy student destinations redirect to the console, and section tools publish into the selected class. Missing and unknown frontend roles fail closed. The new weekly journey renders all seven day regions, including empty days, exercises per-day creation and a cross-week move/removal, verifies owner section planning without personal checklist controls, and navigates a saved week with network transport blocked and no API calls.
+Help tests separate draft from published content. Optional AI tests check local source matching, meaningless/unmatched question rejection before any paid call, atomic daily reservations, bounded input/output, private request contents and rechecking that selected articles are still published. AI is disabled by default; no paid OpenAI request was made during verification.
 
-These checks establish interactions and integration. jsdom does not render CSS like a phone, measure animation performance, perform native focus/touch behavior or prove that a device accepts a home-screen icon. No rendered-browser screenshot or physical-phone acceptance result is claimed.
+## React interaction and offline checks
 
-## Offline storage and reopening
+The React journeys exercise actual application components with a DOM environment and the real Fastify/SQL application through an in-process transport. They cover subject creation/joining, student and owner navigation, representative assignment and transfers, profile/avatar editing, Developer draft/publication, full-week timetable behavior, subject chat/reminders, Help and feature controls. Critical changes wait for fresh persisted API results as well as rendered content. These are interaction checks, not CSS screenshot tests.
 
-The offline suite includes actual API snapshot preparation, a transactional IndexedDB implementation under `fake-indexeddb`, the real AuthProvider, mounted data hooks and a worker VM harness. Quota denial is deliberately injected because the IndexedDB test implementation does not impose a physical disk quota.
+Offline tests cover account-scoped IndexedDB, authorized manifests/snapshots, expiration and account changes, stale-schema rejection, saved files, the public-only service-worker cache, OAuth/API exclusions, update activation and push routing. The compiled worker prepares 14 public assets, including the Word template. Private academic responses and Drive/OAuth credentials are not placed in its public cache.
 
-Covered behavior includes:
+A temporary Chromium runtime could report its version but terminated before loading a page in this environment. Therefore **no successful rendered-browser screenshot, real iPhone/Android installation or physical-device offline result is claimed**. Those remain Checkpoint 5 acceptance checks.
 
-- Explicit preparation from a verified online identity, complete pagination and refusal to publish a partial snapshot.
-- Seven-day expiry, account isolation, the metadata/file caps and explicitly saved file bytes.
-- Read-only reopening without manufacturing a new authentication credential.
-- Student and Class Admin snapshots restricted to enrolled classes, with no offline roster, invitation, token or private profile-photo storage. Master preparation is rejected before academic fetching; legacy owner snapshots and their in-app files are cleared, and role elevation clears saved student state.
-- HTTP 401/403 denial that never grants a cached fallback; only a transport failure may reopen eligible saved data.
-- Removal of lost classes, disabled features, deleted subjects/notices, changed resources and exceptions whose weekly parent is no longer available.
-- Snapshot revision checks, delayed expiry cleanup, cancellation while preparation is pending and a delayed old-account denial that cannot revoke a new account.
-- Cross-tab changes refreshing already-mounted saved views, without falsely advancing the last-complete-sync time.
-- Controlled behavior when browser storage is denied, without breaking normal online login.
+## Word template and calculator
 
-The actual worker source is checked for public-only caching, complete build readiness, offline deep-link reopening and explicit update activation. API, private, authenticated, external and mutation requests bypass it. A build-script process verifies that all emitted public chunks, including lazy Firebase imports, enter the deterministic allowlist and that code changes update the cache version.
+The supplied source template, application template and compiled template have identical SHA-256:
 
-The compiled HTTP check serves the real built files through Fastify injection: deep links, JavaScript/CSS, logos, manifest, favicon, offline help and stamped worker all resolve. Unknown API routes remain JSON 404 responses. No listening preview server is needed for these checks.
+`155dd7ff3231a468c9cda5ef27292a5d2db11801fd3f2975c2ffb5d470f76ca2`
 
-Browser storage and service-worker lifecycle still require actual-device verification. A disconnected device cannot learn about a new suspension until reconnection or saved-access expiry, and a separately downloaded file cannot be recalled. See [OFFLINE](OFFLINE.md) for exact controls, limits and the device procedure.
+Generated documents change the intended field text/footer and clear original author metadata while retaining the remaining template parts, images and layout. The original floating header graphic can overlap the university heading in LibreOffice. Its source placement was preserved to meet the requested template fidelity; review the sample in Microsoft Word before approving the final output.
 
-## Upgrade preservation
+The calculator tests exercise credit weighting, previous-credit/CGPA combination, invalid/blank input, zero marks and decimal grade boundaries. Its grade bands come from the supplied project. Official university grade policy and transcript-specific repeat-course rules have not been independently certified.
 
-The frozen schemas in `tests/fixtures/` represent the previously delivered checkpoints; the tests do not reconstruct old databases from current migrations. They verify accounts, profile fields, classes, private storage keys, content, saved/read state, invitations, actors, timestamps, request history and audit records across migrations 5 and 6.
+## Build and release limits
 
-Prior `cr` and `gr` memberships become `admin` without changing membership IDs. The old single-representative restrictions disappear. The old Tutor rows remain private legacy data while the new Developer profile starts blank and unpublished. Existing feature choices survive. A repeat migration preserves subsequent role changes and edits.
+The build has nonblocking warnings: the main JavaScript chunk is about 579 kB minified (167 kB gzip), and the push helper's dynamic import cannot create a separate chunk because another component imports it statically. These warnings remain visible. Measure real device startup and interaction before deciding further bundle changes.
 
-Tests do not replace a consistent backup of the actual database and its corresponding file store. For the correction use [UPGRADE_FROM_CHECKPOINT_3](UPGRADE_FROM_CHECKPOINT_3.md). [UPGRADE_FROM_CHECKPOINT_2](UPGRADE_FROM_CHECKPOINT_2.md) also covers upgrading CP1 directly to the cumulative CP3 package. Schema versions remain 1–6; the correction preserves existing CP3 memberships, Developer drafts/publication and timetable data.
-
-## Remaining configured release checks
-
-| Area                      | Still required                                                                                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Live authentication       | Real university mailbox verification/reset, Firebase credentials and revocation, owner recovery                                                       |
-| Remote persistence        | Configured Turso/libSQL and R2 connectivity, real-provider failure handling, durable hosted storage and coordinated restore                           |
-| Phone/browser acceptance  | Rendered mobile review, iPhone/Android home-screen install, cold offline reopen, actual downloads, storage eviction, touch/focus and update lifecycle |
-| Hosted pilot and capacity | Actual deployment, proxy/rate-limit settings, concurrent-user load, multiple-server coordination and recovery                                         |
-| Later features            | Scheduled/push reminders, supplied front-page PDF, bounded university chatbot and associated usage limits                                             |
-| Android release           | Native project, package identifier, signing, APK/AAB, direct distribution and Play submission                                                         |
-
-No live credentials, database, uploaded student files or `node_modules` are delivered. No GitHub push, public deployment, signed APK or live-provider success is claimed.
+Checkpoint 5 still needs the owner's configured Firebase, Drive OAuth consent, Turso/libSQL and R2 accounts; real upload/download/disconnect/handover exercises; restored SQL with matching resource objects; optional live push; representative concurrent workload tests; accessibility/mobile review; hosting configuration; and signed Android distribution. No GitHub push, public deployment, APK/AAB, App Store release or 1,000-user capacity result is included in this verification claim.
 
 ## Repeat verification
 
-For a fresh local practice installation with Node 24:
+From the extracted project folder, with Node.js 24 installed, in a Bash-compatible terminal:
 
 ```sh
 npm ci
-npm run setup:demo
-npm run db:migrate
 npm run build
-npm test
+for test_file in tests/*.test.ts tests/*.test.tsx; do
+  node --import tsx --test --test-timeout=180000 --test-reporter=tap "$test_file" || exit 1
+done
 npm audit
 ```
 
-Keep an existing real-account configuration and follow the upgrade guide instead of selecting demo authentication. Build before testing so compiled-asset verification checks the current source. See [test inventory](../tests/README.md), [START_HERE](START_HERE.md), [configuration checklist](CONFIGURATION_CHECKLIST.md), and [deployment guide](GITHUB_AND_DEPLOYMENT.md).
+The loop repeats the isolated per-file approach, stops at the first unsuccessful process, and runs files serially. `npm test` remains the normal combined entry point, but a complete successful combined invocation was not established in this environment. Review each file's final TAP summary; a truncated log or a timeout is not a pass. Tests use isolated local databases and controlled providers. `npm run setup:demo` is for local exploration; never convert fictional demo identities into a real-account deployment. See [the beginner guide](CHECKPOINT_4_GUIDE.md), [upgrade instructions](UPGRADE_FROM_CHECKPOINT_3.md) and [test inventory](../tests/README.md).

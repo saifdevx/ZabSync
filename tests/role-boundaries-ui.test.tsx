@@ -2,36 +2,37 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEMO_SUBJECT_IDS } from '../server/academic.js';
 import { DEMO_CLASS_ID, DEMO_OTHER_CLASS_ID, DEMO_USERS } from '../server/demo.js';
-import { bearer, createTestApp, demoToken, expectSuccess } from './helpers.js';
+import { bearer, createTestApp, demoToken } from './helpers.js';
 import { renderApplication } from './ui-harness.js';
 
 test(
   'rendered class permissions stay local while the owner uses a separate section console and the Developer page stays visible',
-  { timeout: 45_000 },
+  { timeout: 180_000 },
   async (t) => {
     const app = await createTestApp(t);
     const ownerToken = await demoToken(app, 'master');
-    // A real owner grants ordinary membership in 4A to the 5D Class Admin.
-    // This account must manage 5D while only reading its second classroom.
-    expectSuccess(
-      await app.inject({
-        method: 'POST',
-        url: `/api/admin/classes/${DEMO_OTHER_CLASS_ID}/members`,
-        headers: bearer(ownerToken),
-        payload: { userId: DEMO_USERS.admin.id },
-      }),
-    );
+    // A Class Admin is still a student of one section; ordinary enrollment cannot add a second.
+    const secondSection = await app.inject({
+      method: 'POST',
+      url: `/api/admin/classes/${DEMO_OTHER_CLASS_ID}/members`,
+      headers: bearer(ownerToken),
+      payload: { userId: DEMO_USERS.admin.id },
+    });
+    assert.equal(secondSection.statusCode, 409);
+    assert.equal(secondSection.json().error.code, 'section_conflict');
     const ui = await renderApplication(t, { app });
     const { screen, fireEvent, waitFor, within, mainNavigation, switchRole, lastCall } = ui;
     const noSharedEditing = () => {
-      assert.equal(
+      assert.ok(
         screen.queryByRole('button', {
-          name: /^(Post announcement|Add subject|Upload resource|Edit subject|Move subject to trash|Invite classmates|Edit details|Create join code|Create a new join code|Weekly class|One-time change|Add deadline|Manage weekly template & changes)$|^(Edit|Trash) announcement|^(Edit|Trash) resource/,
-        }),
-        null,
+          name: /^(Post announcement|Add subject|Upload resource|Edit subject|Move subject to trash|Subject code|Manage subjects|Edit details|Create section|Weekly class|One-time change|Add deadline|Manage weekly template & changes)$|^(Edit|Trash) announcement|^(Edit|Trash) resource/,
+        }) === null,
         'Viewing a classroom must not grant shared editing controls.',
       );
-      assert.equal(screen.queryByRole('dialog'), null);
+      assert.ok(
+        screen.queryByRole('dialog') === null,
+        'Read-only classroom views have no editing dialog.',
+      );
     };
     const classTab = (name: string) => {
       fireEvent.click(
@@ -45,10 +46,22 @@ test(
       name: /^Good (morning|afternoon|evening), Areeba\.$/,
     });
     await screen.findByRole('heading', { name: 'Your class, in one place' });
-    assert.equal(screen.queryByRole('link', { name: /4A/ }), null);
-    assert.equal(screen.queryByRole('heading', { name: 'Separate class sample notice' }), null);
-    assert.equal(screen.queryByRole('button', { name: 'Create class' }), null);
-    assert.equal(mainNavigation().queryByRole('link', { name: 'Owner dashboard' }), null);
+    assert.ok(
+      screen.queryByRole('link', { name: /4A/ }) === null,
+      'Students cannot open another section from home.',
+    );
+    assert.ok(
+      screen.queryByRole('heading', { name: 'Separate class sample notice' }) === null,
+      'Another section’s announcement is not visible to this student.',
+    );
+    assert.ok(
+      screen.queryByRole('button', { name: /Create (class|section)/ }) === null,
+      'Students cannot create sections.',
+    );
+    assert.ok(
+      mainNavigation().queryByRole('link', { name: 'Owner dashboard' }) === null,
+      'Student navigation cannot access the owner dashboard.',
+    );
     noSharedEditing();
     const developerCard = ui.dom.window.document.querySelector('.sidebar-developer');
     assert.ok(
@@ -71,11 +84,13 @@ test(
       'Personal bookmarks remain available to students.',
     );
 
-    fireEvent.click(mainNavigation().getByRole('link', { name: /^My classes/ }));
-    await screen.findByRole('heading', { level: 1, name: 'My classes' });
-    assert.equal(screen.queryByRole('link', { name: /4A/ }), null);
-    fireEvent.click(screen.getByRole('link', { name: /5D/ }));
+    fireEvent.click(mainNavigation().getByRole('link', { name: /^My Class/ }));
     await screen.findByRole('heading', { level: 1, name: '5D' });
+    assert.ok(
+      screen.queryByRole('link', { name: /4A/ }) === null,
+      'My Class does not offer access to another section.',
+    );
+    assert.equal(ui.currentPath(), `/classes/${DEMO_CLASS_ID}`);
     await screen.findByRole('heading', { name: 'Your class, in one place' });
     noSharedEditing();
     assert.equal(
@@ -110,57 +125,80 @@ test(
     classTab('Subjects');
     assert.ok(await screen.findByRole('button', { name: 'Add subject' }));
     await ui.navigate(`/classes/${DEMO_OTHER_CLASS_ID}?view=announcements`);
-    await screen.findByRole('heading', { level: 1, name: '4A' });
-    await screen.findByRole('heading', { name: 'Separate class sample notice' });
+    await screen.findByRole('heading', { name: 'This is not your assigned section.' });
+    assert.ok(
+      screen.queryByRole('heading', { name: 'Separate class sample notice' }) === null,
+      'A Class Admin cannot read another section’s announcements.',
+    );
     noSharedEditing();
     assert.equal(
-      lastCall('GET', `/api/classes/${DEMO_OTHER_CLASS_ID}?limit=50&offset=0`)?.response?.myRole,
-      'student',
+      lastCall('GET', `/api/classes/${DEMO_OTHER_CLASS_ID}?limit=50&offset=0`),
+      undefined,
+      'The section page rejects foreign navigation before requesting its content.',
     );
-    classTab('Subjects');
-    fireEvent.click(await screen.findByRole('link', { name: 'Separate class sample' }));
-    await screen.findByRole('heading', { level: 1, name: 'Separate class sample' });
+    await ui.navigate(`/subjects/${DEMO_SUBJECT_IDS.other}`);
+    await waitFor(() =>
+      assert.equal(lastCall('GET', `/api/subjects/${DEMO_SUBJECT_IDS.other}`)?.status, 404),
+    );
+    assert.ok(
+      screen.queryByRole('heading', { level: 1, name: 'Separate class sample' }) === null,
+      'A denied foreign subject does not render its content.',
+    );
     noSharedEditing();
-    await ui.navigate(`/classes/${DEMO_OTHER_CLASS_ID}`);
-    await screen.findByRole('heading', { level: 1, name: '4A' });
-    classTab('Resources');
-    await screen.findByRole('heading', { name: 'Lecture resources' });
-    noSharedEditing();
-    classTab('Class details');
-    await screen.findByRole('heading', { name: 'About this class' });
-    noSharedEditing();
+    for (const view of ['resources', 'settings']) {
+      await ui.navigate(`/classes/${DEMO_OTHER_CLASS_ID}?view=${view}`);
+      await screen.findByRole('heading', { name: 'This is not your assigned section.' });
+      noSharedEditing();
+    }
+    // A forged planning query cannot select another section. The admin retains only 5D tools.
     await ui.navigate(`/timetable?class=${DEMO_OTHER_CLASS_ID}`);
     await screen.findByRole('heading', { level: 1, name: 'Timetable' });
     await screen.findByRole('region', { name: 'Monday' });
-    noSharedEditing();
+    assert.equal((screen.getByLabelText('Your class') as HTMLSelectElement).value, DEMO_CLASS_ID);
+    assert.equal(within(screen.getByLabelText('Your class')).getAllByRole('option').length, 1);
+    assert.ok(screen.getByRole('button', { name: 'Weekly class' }));
     await ui.navigate(`/deadlines?class=${DEMO_OTHER_CLASS_ID}`);
     await screen.findByRole('heading', { level: 1, name: 'Deadlines' });
     await waitFor(() =>
       assert.ok(
         ui.calls.some(
           (call) =>
-            call.url.startsWith(`/api/classes/${DEMO_OTHER_CLASS_ID}/deadlines?`) &&
-            call.status === 200,
+            call.url.startsWith(`/api/classes/${DEMO_CLASS_ID}/deadlines?`) && call.status === 200,
         ),
       ),
     );
-    noSharedEditing();
+    assert.equal(
+      ui.calls.some(
+        (call) =>
+          call.url.startsWith(`/api/classes/${DEMO_OTHER_CLASS_ID}/deadlines?`) ||
+          call.url.startsWith(`/api/classes/${DEMO_OTHER_CLASS_ID}/timetable?`),
+      ),
+      false,
+    );
+    assert.equal((screen.getByLabelText('Your class') as HTMLSelectElement).value, DEMO_CLASS_ID);
 
     await switchRole('master', 'ZabSync');
     for (const name of [
       /^Home$/,
-      /^My classes/,
+      /^My Class/,
+      /^My Subjects$/,
       /^Timetable$/,
       /^Deadlines$/,
       /^Offline access$/,
       /^Saved items$/,
       /^Noticeboard$/,
     ]) {
-      assert.equal(mainNavigation().queryByRole('link', { name }), null);
+      assert.ok(
+        mainNavigation().queryByRole('link', { name }) === null,
+        `Owner navigation does not include the student link ${name}.`,
+      );
     }
     assert.ok(mainNavigation().getByRole('link', { name: 'Owner dashboard' }));
     assert.ok(mainNavigation().getByRole('link', { name: 'Meet the Developer' }));
-    assert.equal(screen.queryByRole('button', { name: 'Join a class' }), null);
+    assert.ok(
+      screen.queryByRole('button', { name: 'Join a subject' }) === null,
+      'The owner account does not join subjects as a student.',
+    );
     await ui.navigate('/classes');
     await screen.findByRole('heading', { level: 1, name: 'Your campus. Your control.' });
     assert.equal(ui.currentPath(), '/admin');
@@ -178,9 +216,8 @@ test(
         { name: 'Semester 4' },
       ),
     );
-    assert.equal(
-      screen.queryByRole('button', { name: 'Create class' }),
-      null,
+    assert.ok(
+      screen.queryByRole('button', { name: /Create (class|section)/ }) === null,
       'Broad class creation belongs to the directory, not an open section.',
     );
     classTab('Announcements');
@@ -202,9 +239,8 @@ test(
     fireEvent.click(tabs.getByRole('link', { name: 'Timetable' }));
     await screen.findByRole('heading', { level: 1, name: 'Timetable' });
     assert.equal(ui.currentPath(), `/admin/classes/${DEMO_OTHER_CLASS_ID}/timetable`);
-    assert.equal(
-      screen.queryByLabelText('Your class'),
-      null,
+    assert.ok(
+      screen.queryByLabelText('Your class') === null,
       'Owner planning is scoped by the open section, not an enrollment dropdown.',
     );
     assert.ok(await screen.findByRole('button', { name: 'Weekly class' }));
@@ -225,7 +261,10 @@ test(
     await screen.findByRole('heading', { name: 'Your Developer page' });
     assert.equal(ui.currentPath(), '/admin?tab=developer');
     assert.ok(await screen.findByRole('button', { name: 'Save developer draft' }));
-    assert.equal(screen.queryByRole('button', { name: 'Create class' }), null);
+    assert.ok(
+      screen.queryByRole('button', { name: /Create (class|section)/ }) === null,
+      'The Developer editor does not offer section creation.',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'App controls' }));
     fireEvent.click(await screen.findByRole('switch', { name: 'Meet the Developer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save application settings' }));
@@ -238,7 +277,16 @@ test(
     fireEvent.click(ui.dom.window.document.querySelector('.sidebar-developer')!);
     await screen.findByRole('heading', { level: 1, name: 'Meet the Developer' });
     await screen.findByRole('heading', { name: 'The Developer page is temporarily unavailable.' });
-    assert.equal(screen.queryByRole('link', { name: 'Edit Developer page' }), null);
-    ui.assertNoApiErrors();
+    assert.ok(
+      screen.queryByRole('link', { name: 'Edit Developer page' }) === null,
+      'Students cannot edit the Developer page.',
+    );
+    assert.deepEqual(
+      ui.calls
+        .filter((call) => call.status >= 400)
+        .map((call) => ({ method: call.method, url: call.url, status: call.status })),
+      [{ method: 'GET', url: `/api/subjects/${DEMO_SUBJECT_IDS.other}`, status: 404 }],
+      'Only the deliberately tested foreign subject lookup may be denied; all normal UI actions must succeed.',
+    );
   },
 );

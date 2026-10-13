@@ -1,3 +1,4 @@
+import { DEMO_SUBJECT_IDS } from '../server/academic.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
@@ -77,6 +78,19 @@ test('student direct requests cannot publish, edit or remove shared class conten
   });
   expectSuccess(subjectResponse);
   const subjectId = subjectResponse.json().subject.id;
+  const subjectInvite = await write(admin, {
+    method: 'POST',
+    url: `/api/subjects/${subjectId}/invite`,
+  });
+  expectSuccess(subjectInvite);
+  expectSuccess(
+    await write(student, {
+      method: 'POST',
+      url: '/api/subjects/join',
+      payload: { code: subjectInvite.json().code },
+    }),
+  );
+
   const upload = lectureUpload(subjectId);
   const resourceResponse = await write(admin, {
     method: 'POST',
@@ -190,7 +204,7 @@ test('student direct requests cannot publish, edit or remove shared class conten
   const deniedWrites: WriteRequest[] = [
     { method: 'POST', url: '/api/classes', payload: classForm },
     { method: 'PATCH', url: `/api/classes/${DEMO_CLASS_ID}`, payload: classForm },
-    { method: 'POST', url: `/api/classes/${DEMO_CLASS_ID}/invite` },
+    { method: 'POST', url: `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite` },
     {
       method: 'POST',
       url: `/api/classes/${DEMO_CLASS_ID}/subjects`,

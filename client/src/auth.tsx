@@ -52,7 +52,14 @@ export function errorMessage(error: unknown): string {
     'auth/invalid-email': 'Please enter a valid university email address.',
     'auth/user-disabled': 'This account is disabled. Please contact the app administrator.',
     'auth/operation-not-allowed':
-      'Email login is not enabled yet. Ask the app administrator to finish setup.',
+      'This sign-in method is not enabled yet. Ask the app administrator to finish setup.',
+    'auth/popup-blocked':
+      'Your browser blocked the Google sign-in window. Allow pop-ups for ZabSync or use your university email and app password.',
+    'auth/popup-closed-by-user': 'The Google sign-in window was closed. You can try again.',
+    'auth/cancelled-popup-request':
+      'Another sign-in window is already open. Finish that sign-in first.',
+    'auth/account-exists-with-different-credential':
+      'This email already has an account. Use the original sign-in method for that account.',
     'auth/unauthorized-domain':
       'This website address has not been enabled for login. Contact the app administrator.',
   };
@@ -166,6 +173,7 @@ export interface AuthContextValue {
   demoLogin: (persona: Persona) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   ownerLogin: (email: string, password: string) => Promise<void>;
+  googleLogin: (owner?: boolean) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   resendVerification: () => Promise<void>;
@@ -943,6 +951,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // No owner address, UID, or student registration exception is exposed by this form.
       await api.signInWithEmailAndPassword(auth, normalized, password);
     },
+    googleLogin: async (owner = false) => {
+      if (!configRef.current?.googleSignInEnabled)
+        throw new Error('Google sign-in is not enabled yet.');
+      const { api, auth } = requireFirebase();
+      const provider = new api.GoogleAuthProvider();
+      provider.setCustomParameters(
+        owner
+          ? { prompt: 'select_account' }
+          : { prompt: 'select_account', hd: configRef.current.allowedEmailDomain },
+      );
+      // Called directly from a user gesture. This asks for identity only; Drive uses its own consent.
+      const result = await api.signInWithPopup(auth, provider);
+      if (!owner) {
+        try {
+          validateEmail(result.user.email || '');
+        } catch {
+          await api.signOut(auth);
+          throw new Error(
+            'Use your verified @szabist-isb.pk university account to enter ZabSync. Your personal Gmail can be connected for Drive after sign-in.',
+          );
+        }
+      }
+      // The server still checks verified email and the exact private owner UID. The hd hint is not authorization.
+    },
     register: async (name, email, password) => {
       if (password.length < 12)
         throw new Error('Choose an app password with at least 12 characters.');
@@ -969,6 +1001,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return userRef.current.emailVerified;
     },
     logout: async () => {
+      if (meRef.current && !offlineRef.current) {
+        try {
+          const { disconnectPushOnLogout } = await import('./reminder-push');
+          await disconnectPushOnLogout(meRef.current.user.id, request);
+        } catch {
+          /* Push cleanup never prevents account sign-out. */
+        }
+      }
       const oldLease = leaseRef.current;
       clearView();
       tokenRef.current = '';

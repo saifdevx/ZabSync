@@ -144,6 +144,80 @@ test('the owner console cannot prepare offline data while Class Admins retain on
   );
 });
 
+test('subject access revocation removes cached academic content and file bytes while retaining the section weekly timetable', async (t) => {
+  const { app, db, reader, upload } = await offlineTestApp(t);
+  const student = await demoToken(app, 'student');
+  const admin = await demoToken(app, 'admin');
+  const resource = await upload(admin, DEMO_SUBJECT_IDS.os);
+  const entry = await app.inject({
+    method: 'POST',
+    url: `/api/classes/${DEMO_CLASS_ID}/timetable`,
+    headers: bearer(admin),
+    payload: {
+      title: 'Section-wide weekly session',
+      subjectId: DEMO_SUBJECT_IDS.os,
+      weekday: 5,
+      startTime: '16:00',
+      endTime: '17:00',
+    },
+  });
+  expectSuccess(entry);
+  const snapshot = await buildOfflineSnapshot(reader(student), DEMO_USERS.student.id, offlineNow);
+  assert.ok(snapshot.subjects.some((subject) => subject.id === DEMO_SUBJECT_IDS.os));
+  const factory = new IDBFactory();
+  const store = new OfflineStore(
+    () => factory,
+    () => offlineNow,
+  );
+  const lease = await store.activateVerifiedAccount(snapshot.userId);
+  await store.commit(lease, snapshot);
+  await store.saveFile(lease, resource, new Blob([pdf]));
+
+  await db.execute({
+    sql: "UPDATE subject_enrollments SET status='removed' WHERE user_id=? AND subject_id=?",
+    args: [DEMO_USERS.student.id, DEMO_SUBJECT_IDS.os],
+  });
+  const access = await reader(student)<OfflineAccess>('/offline/access');
+  assert.ok(!access.subjectIds.includes(DEMO_SUBJECT_IDS.os));
+  assert.ok(access.timetableSubjectIds?.includes(DEMO_SUBJECT_IDS.os));
+  await store.revalidate(
+    (await store.snapshot())!.lease,
+    access,
+    await reader(student)<MeResponse>('/me'),
+  );
+  const pruned = (await store.snapshot())!.snapshot;
+  assert.ok(!pruned.subjects.some((subject) => subject.id === DEMO_SUBJECT_IDS.os));
+  assert.ok(!pruned.resources.some((item) => item.subjectId === DEMO_SUBJECT_IDS.os));
+  assert.ok(!pruned.announcements.some((item) => item.subjectId === DEMO_SUBJECT_IDS.os));
+  assert.equal(await store.file(snapshot.userId, resource.id), null);
+  assert.throws(
+    () => offlineResponse(pruned, `/subjects/${DEMO_SUBJECT_IDS.os}`, offlineNow),
+    OfflineStorageError,
+  );
+  assert.throws(
+    () =>
+      offlineResponse(
+        pruned,
+        `/classes/${DEMO_CLASS_ID}/deadlines?subjectId=${DEMO_SUBJECT_IDS.os}`,
+        offlineNow,
+      ),
+    OfflineStorageError,
+  );
+  const weekly = offlineResponse<{ entries: { id: string }[] }>(
+    pruned,
+    `/classes/${DEMO_CLASS_ID}/timetable`,
+    offlineNow,
+  );
+  assert.ok(weekly.entries.some((item) => item.id === entry.json().entry.id));
+
+  const prepared = await buildOfflineSnapshot(reader(student), DEMO_USERS.student.id, offlineNow);
+  assert.ok(!prepared.subjects.some((subject) => subject.id === DEMO_SUBJECT_IDS.os));
+  assert.deepEqual(
+    offlineResponse(prepared, `/classes/${DEMO_CLASS_ID}/timetable`, offlineNow),
+    await reader(student)(`/classes/${DEMO_CLASS_ID}/timetable`),
+  );
+});
+
 test('a real membership/feature revocation prunes offline scope and explicitly saved file bytes', async (t) => {
   const { app, db, reader, upload } = await offlineTestApp(t);
   const student = await demoToken(app, 'student'),

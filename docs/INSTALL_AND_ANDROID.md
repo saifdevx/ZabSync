@@ -2,7 +2,7 @@
 
 **ZabSync** is the app name, with the tagline **Built for Students. Designed for Success**. The project runs as a website and includes home-screen installation support. Students can use the website without installing it.
 
-## Included in Checkpoint 3
+## Included through Checkpoint 4
 
 | Capability                                                        | Status                                            |
 | ----------------------------------------------------------------- | ------------------------------------------------- |

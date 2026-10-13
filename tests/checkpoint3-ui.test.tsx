@@ -9,8 +9,8 @@ import { renderApplication } from './ui-harness.js';
 // One combined journey keeps the actual role transition, timetable and personal
 // completion state across real account switches rather than resetting fixtures.
 test(
-  'rendered owner directory manages real enrollment and class roles, then admins plan a week students can read and complete',
-  { timeout: 60_000 },
+  'rendered owner directory explicitly transfers sections and manages roles, then admins plan a week students can read and complete',
+  { timeout: 180_000 },
   async (t) => {
     const db = await openDatabase('file::memory:');
     const app = await createApp({ db, config: makeTestConfig(), seedDemo: true });
@@ -35,8 +35,8 @@ test(
     await screen.findByRole('heading', { level: 1, name: 'Your campus. Your control.' });
     await screen.findByRole('heading', { name: 'Find a section' });
     fireEvent.click(screen.getByRole('button', { name: /Semester 6/ }));
-    await screen.findByRole('heading', { name: 'Sections & classes' });
-    fireEvent.click(screen.getByRole('button', { name: 'Create class' }));
+    await screen.findByRole('heading', { name: 'Sections' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create section' }));
     const create = await screen.findByRole('dialog', { name: 'Create a class space' });
     assert.equal((within(create).getByLabelText('Semester') as HTMLInputElement).value, '6');
     for (const [label, value] of [
@@ -47,13 +47,13 @@ test(
     ]) {
       fireEvent.change(within(create).getByLabelText(label!), { target: { value } });
     }
-    fireEvent.click(within(create).getByRole('button', { name: 'Create class' }));
-    await screen.findByText('Class created. Manage this section from the owner console.');
+    fireEvent.click(within(create).getByRole('button', { name: 'Create section' }));
+    await waitFor(() => assert.ok(lastCall('POST', '/api/classes')));
+    const created = lastCall('POST', '/api/classes');
+    assert.equal(created?.status, 201, JSON.stringify(created?.response));
     await waitFor(() =>
       assert.ok(screen.queryByRole('dialog') === null, 'The submitted dialog closes.'),
     );
-    const created = lastCall('POST', '/api/classes');
-    assert.equal(created?.status, 201);
     const classId = String(created.response?.class.id);
     assert.ok(classId && classId !== 'undefined');
     assert.equal(created.response?.class.role, null);
@@ -77,30 +77,56 @@ test(
       ),
     );
     fireEvent.click(screen.getByRole('button', { name: /Semester 6/ }));
-    await screen.findByRole('heading', { name: 'Sections & classes' });
+    await screen.findByRole('heading', { name: 'Sections' });
     const section = await screen.findByRole('link', { name: /6H UI Campus/ });
     assert.ok(within(section).getByText(`Class ID: ${classId}`));
     fireEvent.click(section);
     await screen.findByRole('heading', { level: 1, name: '6H UI Campus' });
     await screen.findByRole('heading', { name: 'Your class community' });
-    fireEvent.click(screen.getByRole('button', { name: 'Enroll a student' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enroll or transfer a student' }));
     const enroll = await screen.findByRole('dialog', { name: 'Enroll a registered student' });
-    assert.equal(
-      within(enroll).queryByRole('button', { name: `Enroll ${DEMO_USERS.master.displayName}` }),
-      null,
+    assert.ok(
+      within(enroll).queryByRole('button', { name: `Enroll ${DEMO_USERS.master.displayName}` }) ===
+        null,
+      'The owner account cannot be enrolled as a student.',
     );
     fireEvent.change(within(enroll).getByLabelText('Filter students to enroll'), {
       target: { value: '2412339' },
     });
-    fireEvent.click(await within(enroll).findByRole('button', { name: 'Enroll Areeba Khan' }));
-    await screen.findByText('Student enrolled. You can now assign their class role.');
+    await within(enroll).findByRole('button', { name: 'Enroll Areeba Khan' });
+    fireEvent.click(within(enroll).getByRole('button', { name: 'Transfer / resolve' }));
+    const transfer = await screen.findByRole('dialog', { name: 'Confirm section for Areeba Khan' });
+    fireEvent.change(await within(transfer).findByLabelText('Reason for this assignment'), {
+      target: { value: 'Move the fictional test student from 5D to the confirmed 6H section.' },
+    });
+    fireEvent.click(within(transfer).getByRole('button', { name: 'Confirm section assignment' }));
+    await waitFor(() =>
+      assert.ok(lastCall('PUT', `/api/admin/users/${DEMO_USERS.student.id}/section`)),
+    );
+    const membership = lastCall('PUT', `/api/admin/users/${DEMO_USERS.student.id}/section`);
+    assert.equal(membership?.status, 200, JSON.stringify(membership?.response));
     await waitFor(() =>
       assert.ok(screen.queryByRole('dialog') === null, 'The submitted dialog closes.'),
     );
-    const membership = lastCall('POST', `/api/admin/classes/${classId}/members`);
-    assert.equal(membership?.status, 200);
-    assert.equal(membership.payload?.userId, DEMO_USERS.student.id);
-    assert.equal(membership.response?.membership.role, 'student');
+    assert.equal(membership.payload?.classId, classId);
+    assert.equal(
+      (
+        await db.execute({
+          sql: 'SELECT class_id FROM student_sections WHERE user_id=?',
+          args: [DEMO_USERS.student.id],
+        })
+      ).rows[0].class_id,
+      classId,
+    );
+    assert.equal(
+      (
+        await db.execute({
+          sql: 'SELECT status FROM memberships WHERE user_id=? AND class_id=?',
+          args: [DEMO_USERS.student.id, DEMO_CLASS_ID],
+        })
+      ).rows[0].status,
+      'removed',
+    );
     const memberRow = (await screen.findByText('Areeba Khan')).closest('.person-row');
     assert.ok(memberRow);
     assert.ok(within(memberRow).getByText('2412339@szabist-isb.pk'));
@@ -112,18 +138,32 @@ test(
     fireEvent.change(within(grant).getByLabelText('Class role'), { target: { value: 'admin' } });
     fireEvent.click(within(grant).getByRole('button', { name: 'Save role' }));
     await waitFor(() =>
+      assert.ok(
+        lastCall('PATCH', `/api/admin/classes/${classId}/members/${DEMO_USERS.student.id}/role`),
+      ),
+    );
+    const roleGrant = lastCall(
+      'PATCH',
+      `/api/admin/classes/${classId}/members/${DEMO_USERS.student.id}/role`,
+    );
+    assert.equal(roleGrant?.status, 200, JSON.stringify(roleGrant?.response));
+    await waitFor(() =>
       assert.ok(screen.queryByRole('dialog') === null, 'The submitted dialog closes.'),
     );
-    assert.equal(
-      lastCall('PATCH', `/api/admin/classes/${classId}/members/${DEMO_USERS.student.id}/role`)
-        ?.response?.role,
-      'admin',
-    );
-    const promoted = (await screen.findByText('Areeba Khan')).closest('.person-row')!;
-    assert.ok(within(promoted).getByText('Class Admin'));
+    assert.equal(roleGrant?.response?.role, 'admin');
+    await waitFor(() => {
+      const promoted = screen.getByText('Areeba Khan').closest('.person-row')!;
+      assert.ok(within(promoted).getByText('Class Admin'));
+    });
     await switchRole('student', 'Areeba');
-    assert.ok(screen.getByRole('button', { name: 'Create class' }));
+    assert.ok(
+      screen.queryByRole('button', { name: 'Create section' }) === null,
+      'A Class Admin cannot create sections.',
+    );
     assert.ok(screen.queryByRole('link', { name: 'Owner dashboard' }) === null);
+    await ui.navigate(`/classes/${classId}`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage subjects' }));
+    assert.ok(await screen.findByRole('button', { name: 'Add subject' }));
 
     // Remove the grant using the same owner controls; no fresh student identity is created.
     await switchRole('master', 'ZabSync');
@@ -134,14 +174,79 @@ test(
     fireEvent.click(await screen.findByRole('button', { name: 'Change role for Areeba Khan' }));
     const demote = await screen.findByRole('dialog', { name: 'Assign a class role' });
     fireEvent.change(within(demote).getByLabelText('Class role'), { target: { value: 'student' } });
+    const beforeDemotion = calls.length;
     fireEvent.click(within(demote).getByRole('button', { name: 'Save role' }));
+    await waitFor(() =>
+      assert.ok(
+        calls
+          .slice(beforeDemotion)
+          .some(
+            (call) =>
+              call.method === 'PATCH' &&
+              call.url === `/api/admin/classes/${classId}/members/${DEMO_USERS.student.id}/role`,
+          ),
+      ),
+    );
+    const roleDemotion = lastCall(
+      'PATCH',
+      `/api/admin/classes/${classId}/members/${DEMO_USERS.student.id}/role`,
+    );
+    assert.equal(roleDemotion?.status, 200, JSON.stringify(roleDemotion?.response));
     await waitFor(() =>
       assert.ok(screen.queryByRole('dialog') === null, 'The submitted dialog closes.'),
     );
+    assert.equal(roleDemotion?.response?.role, 'student');
+
+    // Return this student to the original section through the same explicit owner
+    // workflow, preserving history while restoring the subjects they should read.
+    await ui.navigate(`/admin/classes/${DEMO_CLASS_ID}?view=people`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Enroll or transfer a student' }));
+    const returnEnroll = await screen.findByRole('dialog', { name: 'Enroll a registered student' });
+    fireEvent.change(within(returnEnroll).getByLabelText('Filter students to enroll'), {
+      target: { value: '2412339' },
+    });
+    await within(returnEnroll).findByRole('button', { name: 'Enroll Areeba Khan' });
+    fireEvent.click(within(returnEnroll).getByRole('button', { name: 'Transfer / resolve' }));
+    const returnSection = await screen.findByRole('dialog', {
+      name: 'Confirm section for Areeba Khan',
+    });
+    fireEvent.change(await within(returnSection).findByLabelText('Reason for this assignment'), {
+      target: { value: 'Restore the fictional test student to their original 5D section.' },
+    });
+    for (const name of ['OS Lab', 'Database Systems'])
+      fireEvent.click(await within(returnSection).findByRole('checkbox', { name }));
+    const beforeReturn = calls.length;
+    fireEvent.click(
+      within(returnSection).getByRole('button', { name: 'Confirm section assignment' }),
+    );
+    await waitFor(() =>
+      assert.ok(
+        calls
+          .slice(beforeReturn)
+          .some(
+            (call) =>
+              call.method === 'PUT' &&
+              call.url === `/api/admin/users/${DEMO_USERS.student.id}/section`,
+          ),
+      ),
+    );
+    const returned = lastCall('PUT', `/api/admin/users/${DEMO_USERS.student.id}/section`);
+    assert.equal(returned?.status, 200, JSON.stringify(returned?.response));
+    assert.equal(returned?.payload?.classId, DEMO_CLASS_ID);
+    await waitFor(() =>
+      assert.ok(
+        screen.queryByRole('dialog') === null,
+        'The dialog closes after the action succeeds.',
+      ),
+    );
     assert.equal(
-      lastCall('PATCH', `/api/admin/classes/${classId}/members/${DEMO_USERS.student.id}/role`)
-        ?.response?.role,
-      'student',
+      (
+        await db.execute({
+          sql: 'SELECT class_id FROM student_sections WHERE user_id=?',
+          args: [DEMO_USERS.student.id],
+        })
+      ).rows[0].class_id,
+      DEMO_CLASS_ID,
     );
 
     await switchRole('admin', 'Hamza');
@@ -282,7 +387,7 @@ test(
     assert.ok(deadlineId && deadlineId !== 'undefined');
 
     await switchRole('student', 'Areeba');
-    assert.ok(screen.queryByRole('button', { name: 'Create class' }) === null);
+    assert.ok(screen.queryByRole('button', { name: 'Create section' }) === null);
     assert.ok(screen.queryByRole('link', { name: 'Owner dashboard' }) === null);
     fireEvent.click(mainNavigation().getByRole('link', { name: 'Timetable' }));
     await screen.findByRole('heading', { level: 1, name: 'Timetable' });
@@ -340,9 +445,8 @@ test(
     fireEvent.click(mainNavigation().getByRole('link', { name: 'Deadlines' }));
     await screen.findByRole('heading', { level: 1, name: 'Deadlines' });
     await screen.findByRole('button', { name: 'Mark complete: UI Transactions Quiz' });
-    assert.equal(
-      screen.queryByRole('button', { name: 'Mark incomplete: UI Transactions Quiz' }),
-      null,
+    assert.ok(
+      screen.queryByRole('button', { name: 'Mark incomplete: UI Transactions Quiz' }) === null,
       'Completion belongs only to the student who marked it.',
     );
     ui.assertNoApiErrors();

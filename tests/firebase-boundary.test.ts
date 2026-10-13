@@ -185,7 +185,7 @@ test('a verified teacher can sign in but only approved class membership permits 
     url: '/api/me',
     headers: bearer('student-token'),
   });
-  assert.equal(studentAfterAppointment.json().canCreateClass, true);
+  assert.equal(studentAfterAppointment.json().canCreateClass, false);
   assert.equal(studentAfterAppointment.json().user.role, 'student');
 
   const teacherProfile = await app.inject({
@@ -210,15 +210,22 @@ test('a verified teacher can sign in but only approved class membership permits 
   });
   expectForbidden(noMembership);
 
+  const subject = await app.inject({
+    method: 'POST',
+    url: `/api/classes/${classId}/subjects`,
+    headers: bearer('student-token'),
+    payload: { name: 'Identity test course' },
+  });
+  expectSuccess(subject);
   const invitation = await app.inject({
     method: 'POST',
-    url: `/api/classes/${classId}/invite`,
+    url: `/api/subjects/${subject.json().subject.id}/invite`,
     headers: bearer('student-token'),
   });
   expectSuccess(invitation);
   const join = await app.inject({
     method: 'POST',
-    url: '/api/join',
+    url: '/api/subjects/join',
     headers: bearer('teacher-token'),
     payload: { code: invitation.json<{ code: string }>().code },
   });

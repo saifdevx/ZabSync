@@ -1,3 +1,4 @@
+import { DEMO_SUBJECT_IDS } from '../server/academic.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createApp } from '../server/app.js';
@@ -69,7 +70,7 @@ test('only the owner can assign multiple class admins and an existing session im
   assert.equal(
     (await app.inject({ method: 'GET', url: '/api/me', headers: bearer(replacement) })).json()
       .canCreateClass,
-    true,
+    false,
   );
 
   expectSuccess(
@@ -84,7 +85,10 @@ test('only the owner can assign multiple class admins and an existing session im
     expectForbidden(
       await app.inject({
         method,
-        url: `/api/classes/${DEMO_CLASS_ID}${method === 'POST' ? '/invite' : ''}`,
+        url:
+          method === 'POST'
+            ? `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite`
+            : `/api/classes/${DEMO_CLASS_ID}`,
         headers: bearer(originalAdmin),
         ...(method === 'PATCH' ? { payload: validClassUpdate } : {}),
       }),
@@ -110,7 +114,7 @@ test('only the owner can assign multiple class admins and an existing session im
   expectSuccess(
     await app.inject({
       method: 'POST',
-      url: `/api/classes/${DEMO_CLASS_ID}/invite`,
+      url: `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite`,
       headers: bearer(replacement),
     }),
   );
@@ -194,7 +198,7 @@ test('the owner can recover a class without an admin while class admins cannot r
   expectSuccess(
     await app.inject({
       method: 'POST',
-      url: `/api/classes/${DEMO_CLASS_ID}/invite`,
+      url: `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite`,
       headers: bearer(student),
     }),
   );
@@ -236,7 +240,7 @@ test('the owner can recover a class without an admin while class admins cannot r
   expectForbidden(
     await app.inject({
       method: 'POST',
-      url: `/api/classes/${DEMO_CLASS_ID}/invite`,
+      url: `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite`,
       headers: bearer(admin),
     }),
   );
@@ -309,12 +313,35 @@ test('owner membership assignment requires an existing active account and never 
     headers: bearer(master),
     payload: { userId: DEMO_USERS.student.id },
   });
-  expectSuccess(added);
-  assert.equal(added.json().membership.role, 'student');
+  assert.equal(
+    added.statusCode,
+    409,
+    'Adding someone to a second section requires an explicit owner transfer.',
+  );
+  const before = (
+    await app.inject({
+      method: 'GET',
+      url: `/api/admin/users/${DEMO_USERS.student.id}/section`,
+      headers: bearer(master),
+    })
+  ).json().section;
+  const transfer = await app.inject({
+    method: 'PUT',
+    url: `/api/admin/users/${DEMO_USERS.student.id}/section`,
+    headers: bearer(master),
+    payload: {
+      classId: DEMO_OTHER_CLASS_ID,
+      version: before.version,
+      reason: 'Confirmed transfer for test student',
+    },
+  });
+  expectSuccess(transfer);
   const me = (await app.inject({ method: 'GET', url: '/api/me', headers: bearer(student) })).json();
   assert.equal(me.user.role, 'student');
   assert.equal(me.canCreateClass, false);
-  assert.equal(me.classes.length, 2);
+  assert.equal(me.classes.length, 1);
+  assert.equal(me.classes[0].id, DEMO_OTHER_CLASS_ID);
+  assert.equal(me.classes[0].role, 'student');
   assert.deepEqual(
     me.pendingMemberships,
     [],
@@ -335,7 +362,7 @@ test('an admin membership in an archived class cannot authorize creation or ongo
   assert.equal(
     (await app.inject({ method: 'GET', url: '/api/me', headers: bearer(admin) })).json()
       .canCreateClass,
-    true,
+    false,
   );
   await db.execute({
     sql: "UPDATE classes SET status='archived' WHERE id=?",

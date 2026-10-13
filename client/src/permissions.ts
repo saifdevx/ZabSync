@@ -6,9 +6,19 @@ export function isMaster(me: MeResponse | null | undefined): boolean {
 }
 
 export function enrolledClasses(me: MeResponse | null | undefined): ClassSummary[] {
-  if (!me || me.user.status !== 'active' || !['student', 'master'].includes(me.user.role))
+  if (
+    !me ||
+    me.user.status !== 'active' ||
+    me.user.role !== 'student' ||
+    me.section?.needsResolution
+  )
     return [];
-  return me.classes.filter((entry) => entry.role === 'student' || entry.role === 'admin');
+  const classes = me.classes.filter(
+    (entry) =>
+      (entry.role === 'student' || entry.role === 'admin') &&
+      (!me.section?.classId || entry.id === me.section.classId),
+  );
+  return classes.length > 1 ? [] : classes;
 }
 
 export function isClassAdmin(me: MeResponse | null | undefined, classId?: string | null): boolean {
@@ -16,7 +26,7 @@ export function isClassAdmin(me: MeResponse | null | undefined, classId?: string
     !!classId &&
     me?.user.status === 'active' &&
     me.user.role === 'student' &&
-    me.classes.some((entry) => entry.id === classId && entry.role === 'admin')
+    enrolledClasses(me).some((entry) => entry.id === classId && entry.role === 'admin')
   );
 }
 

@@ -182,7 +182,7 @@ test('a real checkpoint 1 schema upgrades without losing accounts, class permiss
     (await rows(db, 'SELECT version FROM schema_migrations ORDER BY version')).map(
       (row) => row.version,
     ),
-    [1, 2, 3, 4, 5, 6],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   );
   assert.equal(
     (
@@ -214,7 +214,7 @@ test('a real checkpoint 1 schema upgrades without losing accounts, class permiss
   assert.equal(profile.json().user.id, 'old-representative');
   assert.equal(profile.json().classes[0].id, classId);
   assert.equal(profile.json().classes[0].role, 'admin');
-  assert.equal(profile.json().canCreateClass, true);
+  assert.equal(profile.json().canCreateClass, false);
   assert.equal(profile.json().classRequests[0].reviewNote, 'Original approval note');
   const photoColumns = profile.json().user;
   assert.equal(photoColumns.username, null);
@@ -247,7 +247,7 @@ test('a real checkpoint 1 schema upgrades without losing accounts, class permiss
     (await rows(db, 'SELECT version FROM schema_migrations ORDER BY version')).map(
       (row) => row.version,
     ),
-    [1, 2, 3, 4, 5, 6],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   );
   assert.equal(
     (

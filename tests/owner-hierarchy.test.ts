@@ -63,7 +63,7 @@ test('only the owner can browse semester sections and complete rosters with stab
   for (const [classKey, userKey] of [
     ['sixA', 'student'],
     ['sixA', 'teacher'],
-    ['sixB', 'student'],
+    ['sixB', 'observer'],
   ]) {
     expectSuccess(
       await app.inject({
@@ -77,7 +77,7 @@ test('only the owner can browse semester sections and complete rosters with stab
   expectSuccess(
     await app.inject({
       method: 'PATCH',
-      url: `/api/admin/classes/${classIds.sixB}/members/${identities.student!.uid}/role`,
+      url: `/api/admin/classes/${classIds.sixB}/members/${identities.observer!.uid}/role`,
       headers: bearer('owner'),
       payload: { role: 'admin' },
     }),
@@ -162,7 +162,7 @@ test('only the owner can browse semester sections and complete rosters with stab
   assert.equal(
     ordinaryRoster.json().myRole,
     'student',
-    'Being admin of another class must not disclose owner roster metadata here.',
+    'Ordinary members must not receive owner roster metadata.',
   );
   for (const member of ordinaryRoster.json().members) {
     assert.equal(Object.hasOwn(member, 'email'), false);

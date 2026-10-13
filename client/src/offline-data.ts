@@ -29,7 +29,7 @@ import {
 import type { ClassDetail, MeResponse } from './types';
 
 export type OnlineReader = <T>(path: string, options?: RequestInit) => Promise<T>;
-const MAX_CLASSES = 20;
+const MAX_CLASSES = 1;
 const MAX_ROWS = 10_000;
 const changed = () =>
   new OfflineStorageError(
@@ -47,6 +47,7 @@ function scopeFingerprint(access: OfflineAccess) {
     classes: [...access.classes].sort((a, b) => a.id.localeCompare(b.id)),
     resources: [...access.resources].sort((a, b) => a.id.localeCompare(b.id)),
     subjects: [...access.subjectIds].sort(),
+    timetableSubjects: [...(access.timetableSubjectIds ?? access.subjectIds)].sort(),
     notices: [...access.announcementIds].sort(),
   });
 }
@@ -119,12 +120,12 @@ export async function buildOfflineSnapshot(
   if (classIds.size > MAX_CLASSES)
     throw new OfflineStorageError(
       'OFFLINE_TOO_MANY_CLASSES',
-      'Offline preparation supports up to 20 joined classes on one device. Your online classes remain available.',
+      'Your section assignment needs confirmation. Refresh online or ask the owner to resolve older memberships.',
     );
   const membershipIds = me.classes.map((item) => item.id).filter((id) => classIds.has(id));
   if (!sameIds([...classIds], membershipIds)) throw changed();
   const snapshot: OfflineSnapshot = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     userId: expectedUserId,
     savedAt: new Date(now).toISOString(),
     expiresAt: new Date(now + OFFLINE_TTL_MS).toISOString(),
@@ -285,6 +286,11 @@ function scoped(
 
 /** An explicit dataset responder lets existing read pages use their own safe filters and page sizes. */
 export function offlineResponse<T>(snapshot: OfflineSnapshot, path: string, now = Date.now()): T {
+  if (snapshot.schemaVersion !== 2)
+    throw new OfflineStorageError(
+      'OFFLINE_UPGRADE_REQUIRED',
+      'Reconnect and prepare offline access again to apply your current section and subjects.',
+    );
   if (snapshot.me.user.role === 'master')
     throw new OfflineStorageError(
       'OFFLINE_OWNER_DISABLED',
@@ -456,15 +462,23 @@ export function offlineResponse<T>(snapshot: OfflineSnapshot, path: string, now 
     };
   } else if (/^\/classes\/[^/]+\/deadlines$/.test(pathname)) {
     if (!flags.deadlines) notSaved();
-    assertParams(params, ['from', 'to', 'kind', 'completed', 'limit', 'offset']);
+    assertParams(params, ['from', 'to', 'kind', 'completed', 'subjectId', 'limit', 'offset']);
     const classId = decodeURIComponent(pathname.split('/')[2]);
     if (!snapshot.deadlines[classId]) notSaved();
+    if (
+      params.get('subjectId') &&
+      !snapshot.subjects.some(
+        (subject) => subject.id === params.get('subjectId') && subject.classId === classId,
+      )
+    )
+      notSaved();
     const list = snapshot.deadlines[classId]
       .filter(
         (item) =>
           (!params.get('from') || String(item.dueDate) >= params.get('from')!) &&
           (!params.get('to') || String(item.dueDate) <= params.get('to')!) &&
           (!params.get('kind') || item.kind === params.get('kind')) &&
+          (!params.get('subjectId') || item.subjectId === params.get('subjectId')) &&
           (!params.has('completed') || item.completed === bool(params, 'completed')),
       )
       .sort(

@@ -7,6 +7,7 @@ export interface PublicConfig {
   universityUrl: string;
   timezone: string;
   authMode: 'demo' | 'firebase';
+  googleSignInEnabled?: boolean;
   firebase: { apiKey: string; authDomain: string; projectId: string; appId: string } | null;
 }
 export interface AppUser {
@@ -39,6 +40,13 @@ export interface ClassRequest extends ClassFields {
 }
 export interface MeResponse {
   canCreateClass: boolean;
+  section?: {
+    classId: string | null;
+    pendingClassId: string | null;
+    needsResolution: boolean;
+    version: number;
+  };
+  subjectRequests?: { subjectId: string; subjectName: string; className: string; status: string }[];
   user: AppUser;
   classes: ClassSummary[];
   pendingMemberships: { id: string; classId: string; className: string; status: RequestStatus }[];

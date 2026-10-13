@@ -34,6 +34,7 @@ import type { SubjectList } from './academic-types';
 import type { ClassDetail } from './types';
 import { canManageAcademic, enrolledClasses, isMaster } from './permissions';
 import { isCalendarDate } from '../../server/schedule';
+import { DeadlineReminderButton } from './ReminderPanel';
 
 export const WEEKDAYS = [
   'Monday',
@@ -146,6 +147,7 @@ function PlanningEditor({
   classId,
   editor,
   entries = [],
+  subjectId,
   date,
   onClose,
   onSaved,
@@ -153,6 +155,7 @@ function PlanningEditor({
   classId: string;
   editor: Editor;
   entries?: WeeklyEntry[];
+  subjectId?: string;
   date: string;
   onClose: () => void;
   onSaved: () => void;
@@ -166,7 +169,7 @@ function PlanningEditor({
   const value = editor.value;
   const [form, setForm] = useState({
     title: value?.title ?? '',
-    subjectId: value?.subjectId ?? '',
+    subjectId: value?.subjectId ?? subjectId ?? '',
     weekday: String(
       editor.kind === 'weekly' && value && 'weekday' in value
         ? value.weekday
@@ -405,7 +408,11 @@ function PlanningEditor({
             {site.settings?.features.subjects !== false && (
               <label>
                 Subject (optional)
-                <select value={form.subjectId} onChange={(e) => field('subjectId', e.target.value)}>
+                <select
+                  value={form.subjectId}
+                  disabled={!!subjectId}
+                  onChange={(e) => field('subjectId', e.target.value)}
+                >
                   <option value="">General / no subject</option>
                   {subjects.data?.subjects.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -1045,9 +1052,11 @@ export function TimetablePanel({
 
 export function DeadlinesPanel({
   classId,
+  subjectId,
   compact = false,
 }: {
   classId: string;
+  subjectId?: string;
   compact?: boolean;
 }) {
   const auth = useAuth();
@@ -1063,7 +1072,7 @@ export function DeadlinesPanel({
   const state = useApi<DeadlineData>(
     site.settings?.features.deadlines === false
       ? null
-      : `/classes/${classId}/deadlines?${queryString({ limit: compact ? 5 : 20, offset, from: compact ? campusDate() : undefined, completed: ownerContext ? undefined : compact ? 'false' : filter === 'all' ? undefined : filter === 'done' ? 'true' : 'false' })}`,
+      : `/classes/${classId}/deadlines?${queryString({ subjectId, limit: compact ? 5 : 20, offset, from: compact ? campusDate() : undefined, completed: ownerContext ? undefined : compact ? 'false' : filter === 'all' ? undefined : filter === 'done' ? 'true' : 'false' })}`,
   );
   useEffect(() => {
     setOffset(0);
@@ -1101,7 +1110,15 @@ export function DeadlinesPanel({
           <span className="eyebrow">
             {ownerContext ? 'SECTION PLANNING' : 'MAKE ROOM FOR WHAT MATTERS'}
           </span>
-          <h2>{ownerContext ? 'Class deadlines' : compact ? 'Coming up' : 'Your deadlines'}</h2>
+          <h2>
+            {subjectId
+              ? 'Subject deadlines'
+              : ownerContext
+                ? 'Class deadlines'
+                : compact
+                  ? 'Coming up'
+                  : 'Your deadlines'}
+          </h2>
         </div>
         <div className="planning-actions">
           <button className="icon-button" aria-label="Refresh deadlines" onClick={state.reload}>
@@ -1189,6 +1206,7 @@ export function DeadlinesPanel({
                   {item.description && !compact && (
                     <div className="deadline-description">{item.description}</div>
                   )}
+                  {!isMaster(auth.me) && <DeadlineReminderButton deadlineId={item.id} />}
                 </div>
                 {canManage && (
                   <div className="deadline-actions">
@@ -1260,6 +1278,7 @@ export function DeadlinesPanel({
       {canManage && editor && (
         <PlanningEditor
           classId={classId}
+          subjectId={subjectId}
           editor={editor}
           date={campusDate()}
           onClose={() => setEditor(null)}

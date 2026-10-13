@@ -26,7 +26,7 @@ const source = await readFile(new URL('../client/public/sw.js', import.meta.url)
 if (!source.includes('__ZABSYNC_BUILD__') || !source.includes('/* __ZABSYNC_PUBLIC_ASSETS__ */'))
   throw new Error('The service worker build marker is missing.');
 const approved = allFiles.map((path) => `/${relative(directory, path).replaceAll('\\', '/')}`)
-  .filter((path) => ['/index.html', '/offline.html', '/manifest.webmanifest'].includes(path) ||
+  .filter((path) => ['/index.html', '/offline.html', '/manifest.webmanifest', '/templates/assignment-cover.docx'].includes(path) ||
     /^\/(icons|branding)\/[A-Za-z0-9_./-]+\.(png|svg|webp|jpg|jpeg|ico)$/.test(path) ||
     /^\/assets\/[A-Za-z0-9_./-]+\.(js|css|woff2?|ttf|png|svg|webp|jpg|jpeg|ico)$/.test(path));
 if (!approved.includes('/index.html') || !approved.some((path) => /^\/assets\/.+\.js$/.test(path)))

@@ -183,14 +183,21 @@ test('owner classes stay outside enrolled lists; the separate university account
       payload: { ...classForm, name: '5D Updated' },
     }),
   );
+  const subject = await app.inject({
+    method: 'POST',
+    url: `/api/classes/${classId}/subjects`,
+    headers: bearer('owner'),
+    payload: { name: 'Owner test subject' },
+  });
+  expectSuccess(subject);
   const invite = await app.inject({
     method: 'POST',
-    url: `/api/classes/${classId}/invite`,
+    url: `/api/subjects/${subject.json().subject.id}/invite`,
     headers: bearer('owner'),
   });
   expectSuccess(invite);
   for (const request of [
-    { url: '/api/join', payload: { code: invite.json().code } },
+    { url: '/api/subjects/join', payload: { code: invite.json().code } },
     { url: `/api/admin/classes/${classId}/members`, payload: { userId: owner.uid } },
   ]) {
     const denied = await app.inject({ method: 'POST', headers: bearer('owner'), ...request });
@@ -222,23 +229,29 @@ test('owner classes stay outside enrolled lists; the separate university account
   );
   const sameToken = await app.inject({ method: 'GET', url: '/api/me', headers: bearer('student') });
   assert.equal(sameToken.json().user.role, 'student');
-  assert.equal(sameToken.json().canCreateClass, true);
-  const adminCreated = await app.inject({
+  assert.equal(sameToken.json().canCreateClass, false);
+  const blockedAdminSection = await app.inject({
     method: 'POST',
     url: '/api/classes',
     headers: bearer('student'),
     payload: { ...classForm, name: '6A', semester: 6, section: 'A' },
   });
+  assert.equal(blockedAdminSection.statusCode, 403);
+  const adminCreated = await app.inject({
+    method: 'POST',
+    url: `/api/classes/${classId}/subjects`,
+    headers: bearer('student'),
+    payload: { name: 'Admin subject' },
+  });
   expectSuccess(adminCreated);
-  assert.equal(adminCreated.json().class.role, 'admin');
-  assert.equal(adminCreated.json().class.memberCount, 1);
+  assert.equal(adminCreated.json().subject.classId, classId);
   const adminClasses = await app.inject({
     method: 'GET',
     url: '/api/classes?limit=1&offset=1',
     headers: bearer('student'),
   });
-  assert.equal(adminClasses.json().classes[0].id, adminCreated.json().class.id);
-  assert.deepEqual(adminClasses.json().pagination, { limit: 1, offset: 1, total: 2 });
+  assert.deepEqual(adminClasses.json().classes, []);
+  assert.deepEqual(adminClasses.json().pagination, { limit: 1, offset: 1, total: 1 });
   assert.deepEqual(
     (await app.inject({ method: 'GET', url: '/api/classes', headers: bearer('owner') })).json()
       .classes,

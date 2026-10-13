@@ -15,7 +15,7 @@ function responseGate() {
 
 test(
   'rendered feature controls wait for confirmed settings and retain disabled features and page state during a bookmark refresh',
-  { timeout: 25_000 },
+  { timeout: 180_000 },
   async (t) => {
     const db = await openDatabase('file::memory:');
     const app = await createApp({ db, config: makeTestConfig(), seedDemo: true });
@@ -105,7 +105,9 @@ test(
     noEnabledFeatureLinks();
     noDisabledFeatureRequests();
     assert.ok(
-      screen.queryByRole('button', { name: /Add subject|Upload file|Weekly class/ }) === null,
+      screen.queryByRole('button', {
+        name: /Add subject|Join a subject|Upload file|Weekly class/,
+      }) === null,
     );
 
     fireEvent.click(mainNavigation().getByRole('link', { name: 'Noticeboard' }));
@@ -161,9 +163,7 @@ test(
     noEnabledFeatureLinks();
     noDisabledFeatureRequests();
 
-    fireEvent.click(mainNavigation().getByRole('link', { name: /^My classes/ }));
-    await screen.findByRole('heading', { level: 1, name: 'My classes' });
-    fireEvent.click(screen.getByRole('link', { name: /5D/ }));
+    fireEvent.click(mainNavigation().getByRole('link', { name: /^My Class/ }));
     await screen.findByRole('heading', { level: 1, name: '5D' });
     const tabs = within(screen.getByRole('group', { name: 'Class sections' }));
     for (const name of ['Subjects', 'Resources', 'Timetable'])

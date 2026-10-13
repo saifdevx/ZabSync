@@ -37,6 +37,7 @@ import {
 import type { AppUser } from './types';
 import { useSite } from './site';
 import { isMaster } from './permissions';
+import { DriveSettings } from './DriveSettings';
 
 export interface FeatureSettings {
   subjects: boolean;
@@ -46,6 +47,11 @@ export interface FeatureSettings {
   timetable: boolean;
   deadlines: boolean;
   profilePhotos: boolean;
+  chat: boolean;
+  reminders: boolean;
+  frontPage: boolean;
+  cgpa: boolean;
+  help: boolean;
 }
 interface SiteSettings {
   version: number;
@@ -99,7 +105,12 @@ export function ProfilePage() {
   const auth = useAuth();
   const user = auth.me!.user;
   // Account-switching mounts a fresh editor, so one student's draft cannot follow another login.
-  return <ProfileEditor key={user.id} user={user} />;
+  return (
+    <>
+      <ProfileEditor key={user.id} user={user} />
+      <DriveSettings key={`drive-${user.id}`} />
+    </>
+  );
 }
 
 function ProfileEditor({ user }: { user: AppUser }) {
@@ -578,6 +589,31 @@ export function DeveloperPage() {
 }
 
 const featureLabels: { key: keyof FeatureSettings; title: string; description: string }[] = [
+  {
+    key: 'chat',
+    title: 'Subject chat',
+    description: 'Class Admins choose whether enrolled members can post in each subject.',
+  },
+  {
+    key: 'reminders',
+    title: 'Deadline reminders',
+    description: 'Student opt-in, reminder inbox, and optional device notifications.',
+  },
+  {
+    key: 'frontPage',
+    title: 'Front page generator',
+    description: 'Create a Word cover with the approved university template.',
+  },
+  {
+    key: 'cgpa',
+    title: 'CGPA calculator',
+    description: 'Private, credit-weighted semester GPA and cumulative calculations.',
+  },
+  {
+    key: 'help',
+    title: 'Help & campus guide',
+    description: 'Publish approved app guidance and sourced university answers.',
+  },
   {
     key: 'subjects',
     title: 'Subjects',

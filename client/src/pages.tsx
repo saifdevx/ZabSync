@@ -61,7 +61,7 @@ import {
   useToast,
 } from './components';
 import type { AdminOverview, ClassDetail, ClassFields, ClassRequest } from './types';
-import { AnnouncementBoard, ClassAcademic, TrashPanel } from './AcademicPages';
+import { AnnouncementBoard, ClassAcademic, TrashPanel, SubjectsPanel } from './AcademicPages';
 import { AdminDeveloperPanel, AdminSettingsPanel, UserStatusControl } from './OperationsPages';
 import { useSite } from './site';
 import { contentChanged } from './hooks';
@@ -114,36 +114,30 @@ function WorkspaceActions({ compact = false }: { compact?: boolean }) {
   const paused = site.settings?.maintenance.enabled === true && !owner;
   const selectedSemester =
     owner && params.has('semester') ? Number(params.get('semester')) : undefined;
-  const canCreate =
-    !auth.offline &&
-    !paused &&
-    auth.me?.user.status === 'active' &&
-    (owner ||
-      (auth.me.user.role === 'student' &&
-        auth.me.canCreateClass === true &&
-        enrolledClasses(auth.me).some((entry) => entry.role === 'admin')));
+  const canCreate = owner && !auth.offline;
+  const canJoin = !owner && site.settings?.features.subjects === true;
   const [dialog, setDialog] = useState<'join' | 'create' | null>(null);
   return (
     <>
       <div className={`workspace-actions ${compact ? 'actions-compact' : ''}`}>
-        {!owner && (
+        {canJoin && (
           <button
             className="button button-secondary"
             disabled={auth.offline || paused}
             onClick={() => setDialog('join')}
           >
             <KeyRound size={17} />
-            Join a class
+            Join a subject
           </button>
         )}
         {canCreate && (
           <button className="button button-primary" onClick={() => setDialog('create')}>
             <Plus size={18} />
-            Create class
+            Create section
           </button>
         )}
       </div>
-      {dialog === 'join' && !owner && !auth.offline && !paused && (
+      {dialog === 'join' && canJoin && !auth.offline && !paused && (
         <JoinModal onClose={() => setDialog(null)} />
       )}
       {dialog === 'create' && canCreate && (
@@ -160,8 +154,8 @@ function JoinModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   return (
     <Modal
-      title="Join your class"
-      description="Ask your class admin for a current join code."
+      title="Join a subject"
+      description="Use a subject code from the admin of your own section."
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -174,13 +168,14 @@ function JoinModal({ onClose }: { onClose: () => void }) {
           setError('');
           try {
             const result = await auth.request<{ membership: { status: string }; message?: string }>(
-              '/join',
+              '/subjects/join',
               { method: 'POST', body: JSON.stringify({ code: code.trim() }) },
             );
             await auth.refreshMe();
+            contentChanged();
             toast(
               result.membership.status === 'active'
-                ? 'You’re already a member of this class. Open it from My classes.'
+                ? 'Subject joined. Open it from My Subjects.'
                 : 'Join request sent. Your class admin will review it.',
             );
             onClose();
@@ -192,7 +187,7 @@ function JoinModal({ onClose }: { onClose: () => void }) {
         }}
       >
         <label>
-          Class join code
+          Subject join code
           <input
             className="code-input"
             autoFocus
@@ -209,7 +204,10 @@ function JoinModal({ onClose }: { onClose: () => void }) {
         </label>
         <div className="info-box">
           <ShieldCheck size={20} />
-          <p>Your class admin approves your membership before you can enter the class.</p>
+          <p>
+            Your first subject request needs section approval. Later codes work only within that
+            same section.
+          </p>
         </div>
         <ErrorNotice message={error} />
         <div className="modal-actions">
@@ -264,7 +262,7 @@ function CreateModal({
             ? { name: '', program: '', semester: initialSemester, section: '', description: '' }
             : undefined
         }
-        submitLabel="Create class"
+        submitLabel="Create section"
         busy={busy}
         error={error}
         onCancel={onClose}
@@ -280,7 +278,7 @@ function CreateModal({
             toast(
               owner
                 ? 'Class created. Manage this section from the owner console.'
-                : 'Class created. Open it from My classes.',
+                : 'Section created.',
             );
             contentChanged();
             onClose();
@@ -320,11 +318,12 @@ export function Dashboard() {
   const shortcuts = [
     { to: '/timetable', label: 'Timetable', icon: CalendarDays, tone: 'blue' },
     { to: '/deadlines', label: 'Deadlines', icon: CheckSquare2, tone: 'purple' },
-    { to: '/classes', label: 'My classes', icon: BookOpen, tone: 'teal' },
+    { to: '/subjects', label: 'My Subjects', icon: BookOpen, tone: 'teal' },
     { to: '/offline', label: 'Offline', icon: WifiOff, tone: 'amber' },
   ]
     .filter((x) => x.to !== '/timetable' || site.settings?.features.timetable !== false)
-    .filter((x) => x.to !== '/deadlines' || site.settings?.features.deadlines !== false);
+    .filter((x) => x.to !== '/deadlines' || site.settings?.features.deadlines !== false)
+    .filter((x) => x.to !== '/subjects' || site.settings?.features.subjects !== false);
   return (
     <>
       <div className="dashboard-greeting">
@@ -427,9 +426,7 @@ export function Dashboard() {
           )}
           <section className="panel compact-classes">
             <div className="section-heading">
-              <h2>
-                Your spaces <span className="count-pill">{me.classes.length}</span>
-              </h2>
+              <h2>Your section</h2>
               <Link className="text-button" to="/classes">
                 View all
                 <ChevronRight size={15} />
@@ -478,70 +475,57 @@ export function Dashboard() {
 
 export function ClassesPage() {
   const auth = useAuth();
-  const [query, setQuery] = useState('');
-  const toast = useToast();
-  const classes = enrolledClasses(auth.me).filter((item) =>
-    `${item.name} ${item.program} ${item.section}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  const section = enrolledClasses(auth.me)[0];
+  if (section) return <Navigate to={`/classes/${section.id}`} replace />;
   return (
     <>
       <ActionHeading
-        eyebrow="YOUR WORKSPACE"
-        title="My classes"
-        subtitle="Every class has a place of its own."
+        eyebrow="YOUR SECTION"
+        title="My Class"
+        subtitle="One section. Your subjects, schedule, and classmates together."
       >
         <WorkspaceActions />
       </ActionHeading>
-      <div className="toolbar">
-        <label className="search-field">
-          <Search size={19} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find one of your classes"
-            aria-label="Search your classes"
-          />
-          {query && (
-            <button className="icon-button" aria-label="Clear search" onClick={() => setQuery('')}>
-              <X size={17} />
-            </button>
-          )}
-        </label>
-        <button
-          className="button button-secondary"
-          onClick={() =>
-            void auth
-              .refreshMe()
-              .then(() => toast('Your classes are up to date.'))
-              .catch((e) => toast(errorMessage(e)))
+      <section className="panel">
+        <EmptyState
+          icon={<GraduationCap size={30} />}
+          title={
+            auth.me?.section?.needsResolution
+              ? 'Your section needs confirmation.'
+              : 'Join your first subject.'
           }
         >
-          <RefreshCw size={16} />
-          Refresh
-        </button>
-      </div>
-      {classes.length ? (
-        <div className="class-grid">
-          {classes.map((value) => (
-            <ClassCard key={value.id} value={value} />
-          ))}
-        </div>
-      ) : (
-        <div className="panel">
-          <EmptyState
-            title={query ? 'No matching classes.' : 'You’re ready for your first class.'}
-            action={!query && <WorkspaceActions compact />}
-          >
-            {query
-              ? 'Try a different name or clear your search.'
-              : 'Get a join code from your class admin to enter your class space.'}
-          </EmptyState>
-        </div>
-      )}
-      <p className="page-hint">
-        <LockKeyhole size={15} />
-        Only approved members can enter a class space.
-      </p>
+          {auth.me?.section?.needsResolution
+            ? 'Your earlier account belonged to more than one section. The owner will select your correct section; your previous records are preserved.'
+            : auth.me?.section?.pendingClassId
+              ? 'Your class admin is reviewing your section request. Your subjects and timetable appear after approval.'
+              : 'Ask your class admin for a subject code. Your first approved request connects you to your section.'}
+        </EmptyState>
+      </section>
+    </>
+  );
+}
+
+export function MySubjectsPage() {
+  const auth = useAuth(),
+    site = useSite();
+  const section = enrolledClasses(auth.me)[0];
+  if (!section) return <ClassesPage />;
+  const canManage = canManageAcademic(auth.me, section.id, {
+    offline: auth.offline,
+    maintenance: site.settings?.maintenance.enabled === true,
+    ownerContext: false,
+  });
+  return (
+    <>
+      <ActionHeading
+        eyebrow={`${section.name} / YOUR SUBJECTS`}
+        title="My Subjects"
+        subtitle="Open a subject for its files, announcements, deadlines, and chat."
+      >
+        <WorkspaceActions />
+      </ActionHeading>
+      <SubjectsPanel classId={section.id} canManage={canManage} />
     </>
   );
 }
@@ -549,13 +533,34 @@ export function ClassesPage() {
 export function RequestsPage() {
   const auth = useAuth();
   const requests = auth.me!.pendingMemberships;
+  const toast = useToast();
   return (
     <>
       <ActionHeading
         eyebrow="YOUR MEMBERSHIPS"
         title="Join requests"
-        subtitle="See the status of your requests to join a class."
+        subtitle="Your first subject request confirms your section; later subject codes stay within it."
       />
+      {auth.me?.section?.pendingClassId && (
+        <section className="panel">
+          <p>
+            Waiting for your section to be approved. If this was the wrong section, cancel before
+            trying another subject code.
+          </p>
+          <button
+            className="button button-secondary"
+            disabled={auth.offline}
+            onClick={() =>
+              void auth
+                .request('/me/section-request', { method: 'DELETE' })
+                .then(() => auth.refreshMe())
+                .catch((e) => toast(errorMessage(e)))
+            }
+          >
+            Cancel pending request
+          </button>
+        </section>
+      )}
       <section className="panel">
         {requests.length ? (
           <div className="request-list">
@@ -585,11 +590,11 @@ export function RequestsPage() {
             title="No join requests yet."
             action={
               <Link className="button button-primary" to="/classes">
-                My classes
+                My Class
               </Link>
             }
           >
-            Use a current class code to request membership.
+            Use a current subject code to request membership.
           </EmptyState>
         )}
       </section>
@@ -626,14 +631,10 @@ export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean
   const [busy, setBusy] = useState('');
   const [actionError, setActionError] = useState('');
   const [edit, setEdit] = useState(false);
-  const [rotate, setRotate] = useState(false);
-  const [invite, setInvite] = useState<{ code: string; expiresAt: string } | null>(null);
   const [removeUser, setRemoveUser] = useState<ClassDetail['members'][number] | null>(null);
   const [representative, setRepresentative] = useState<ClassDetail['members'][number] | null>(null);
   const [newRole, setNewRole] = useState<'admin' | 'student'>('admin');
   useEffect(() => {
-    setInvite(null);
-    setRotate(false);
     setEdit(false);
     setRemoveUser(null);
     setRepresentative(null);
@@ -662,17 +663,17 @@ export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean
         title={
           ownerWorkspace
             ? 'Owner section tools need an online owner account.'
-            : 'This class is not in your enrolled classes.'
+            : 'This is not your assigned section.'
         }
         action={
           <Link className="button button-secondary" to={owner ? '/admin' : '/classes'}>
-            {owner ? 'Owner dashboard' : 'My classes'}
+            {owner ? 'Owner dashboard' : 'My Class'}
           </Link>
         }
       >
         {ownerWorkspace
           ? 'Reconnect to manage this section.'
-          : 'Request membership with a current class code, then wait for approval.'}
+          : 'Request membership with a current subject code, then wait for approval.'}
       </EmptyState>
     );
   if (loading) return <Spinner label="Opening your class…" />;
@@ -681,7 +682,7 @@ export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean
       <>
         <Link className="back-link" to={ownerWorkspace ? '/admin' : '/classes'}>
           <ArrowLeft size={16} />
-          {ownerWorkspace ? 'Owner dashboard' : 'My classes'}
+          {ownerWorkspace ? 'Owner dashboard' : 'My Class'}
         </Link>
         <ErrorNotice message={error || 'Class not found.'} retry={reload} />
       </>
@@ -736,7 +737,7 @@ export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean
       ) : (
         <Link className="back-link" to="/classes">
           <ArrowLeft size={16} />
-          My classes
+          My Class
         </Link>
       )}
       <section className="class-banner">
@@ -757,15 +758,9 @@ export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean
           </div>
         </div>
         {canManage && (
-          <button
-            className="button button-white"
-            onClick={() => {
-              setRotate(true);
-              setActionError('');
-            }}
-          >
-            <UserPlus size={17} />
-            Invite classmates
+          <button className="button button-white" onClick={() => setTab('subjects')}>
+            <BookOpen size={17} />
+            Manage subjects
           </button>
         )}
       </section>
@@ -1108,24 +1103,20 @@ export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean
               <Fingerprint size={26} />
             </div>
             <h2>One class. One identity.</h2>
-            <p>This Class ID stays the same, even when your join code changes.</p>
+            <p>
+              This permanent section ID is for owner tracking. Students join with a subject code.
+            </p>
             <code className="class-id-value">{data.class.id}</code>
-            <CopyButton value={data.class.id} label="Copy Class ID" />
+            <CopyButton value={data.class.id} label="Copy Section ID" />
             <div className="identity-divider" />
             <p>
-              <KeyRound size={16} />
-              Classmates need a join code to request access.
+              Open a subject to create or replace its join code. Only the owner can transfer someone
+              to another section.
             </p>
             {canManage && (
-              <button
-                className="button button-primary"
-                onClick={() => {
-                  setRotate(true);
-                  setActionError('');
-                }}
-              >
-                <UserPlus size={17} />
-                {data.invite?.active ? 'Create a new join code' : 'Create join code'}
+              <button className="button button-primary" onClick={() => setTab('subjects')}>
+                <BookOpen size={17} />
+                Open subjects
               </button>
             )}
           </section>
@@ -1173,93 +1164,10 @@ export function ClassPage({ ownerWorkspace = false }: { ownerWorkspace?: boolean
           />
         </Modal>
       )}
-      {rotate && canManage && (
-        <Modal
-          title={invite ? 'Your class join code' : 'Invite your classmates'}
-          description={
-            invite
-              ? 'Share this code with students in your class.'
-              : 'A new code replaces the previous code. Students still need your approval to enter.'
-          }
-          onClose={() => {
-            if (!busy) {
-              setRotate(false);
-              setInvite(null);
-            }
-          }}
-        >
-          {invite ? (
-            <div className="invite-result">
-              <div className="invite-code">{invite.code}</div>
-              <CopyButton value={invite.code} label="Copy join code" />
-              <p>Expires {formatDate(invite.expiresAt, true)} (Pakistan time).</p>
-              <div className="info-box">
-                <LockKeyhole size={19} />
-                <p>Copy it before closing. The full code is only shown when it is created.</p>
-              </div>
-              <button
-                className="button button-primary button-full"
-                onClick={() => {
-                  setRotate(false);
-                  setInvite(null);
-                }}
-              >
-                Done
-              </button>
-            </div>
-          ) : (
-            <div className="form-stack">
-              <div className="info-box">
-                <Clock3 size={20} />
-                <p>
-                  Codes expire after 7 days. Create another whenever you need one. Existing class
-                  members are unaffected.
-                </p>
-              </div>
-              <ErrorNotice message={actionError} />
-              <div className="modal-actions">
-                <button
-                  className="button button-secondary"
-                  disabled={!!busy}
-                  onClick={() => {
-                    setRotate(false);
-                    setInvite(null);
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="button button-primary"
-                  disabled={!!busy}
-                  onClick={async () => {
-                    setBusy('invite');
-                    setActionError('');
-                    try {
-                      const result = await auth.request<{ code: string; expiresAt: string }>(
-                        `/classes/${classId}/invite`,
-                        { method: 'POST' },
-                      );
-                      setInvite(result);
-                      toast('New join code created.');
-                    } catch (e) {
-                      setActionError(errorMessage(e));
-                    } finally {
-                      setBusy('');
-                    }
-                  }}
-                >
-                  {busy ? <LoaderCircle className="spin" size={17} /> : <KeyRound size={17} />}
-                  Create join code
-                </button>
-              </div>
-            </div>
-          )}
-        </Modal>
-      )}
       {removeUser && canManage && (
         <Modal
           title="Remove class member?"
-          description={`${removeUser.displayName} will lose access to this class. They can request to join again with a valid code.`}
+          description={`${removeUser.displayName} will lose access to this class. They can request this section again with a valid subject code. Only the owner can transfer them elsewhere.`}
           onClose={() => {
             if (!busy) setRemoveUser(null);
           }}
@@ -1446,6 +1354,10 @@ export function AdminPage() {
             {t.label}
           </button>
         ))}
+        <Link className="button button-secondary button-small" to="/admin/help">
+          <BookOpen size={17} />
+          Help & knowledge
+        </Link>
       </div>
       {tab === 'semesters' && <SemesterDirectory />}
       {tab === 'users' && (

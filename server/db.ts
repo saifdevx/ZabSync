@@ -12,6 +12,12 @@ import { academicMigration } from './academic-migration.js';
 import { operationsMigration } from './operations-migration.js';
 import { roleDeveloperMigration } from './role-developer-migration.js';
 import { timetableMigration } from './timetable-migration.js';
+import { sectionMigration } from './section-migration.js';
+import { driveMigration } from './drive-migration.js';
+import { chatMigration } from './chat-migration.js';
+import { reminderMigration } from './reminder-migration.js';
+import { helpMigration } from './help-migration.js';
+import { helpAssistantMigration } from './help-assistant-migration.js';
 
 export type Database = Pick<Client, 'execute'>;
 export type SqlRow = Row;
@@ -117,6 +123,12 @@ export async function migrate(db: Client): Promise<void> {
       [4, operationsMigration],
       [5, roleDeveloperMigration],
       [6, timetableMigration],
+      [7, sectionMigration],
+      [8, driveMigration],
+      [9, chatMigration],
+      [10, reminderMigration],
+      [11, helpMigration],
+      [12, helpAssistantMigration],
     ] as const) {
       const applied = await first(tx, 'SELECT version FROM schema_migrations WHERE version = ?', [
         version,

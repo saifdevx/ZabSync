@@ -1,72 +1,87 @@
-# Update Checkpoint 3 to corrected version 0.3.1
+# Upgrade Checkpoint 3 to Checkpoint 4 (0.4.0)
 
-This is still **Checkpoint 3 of five**. The complete ZIP replaces the earlier 0.3.0 source and build while preserving your configured accounts, classes, files and timetable records.
+This is **Checkpoint 4 of five**, supplied as a complete project. It replaces 0.3.0/0.3.1 source while preserving real accounts and academic records through migrations. The authoritative beginner instructions are [Checkpoint 4 guide](CHECKPOINT_4_GUIDE.md). Older examples that permit one person to create/join several sections no longer apply.
 
-For an installation still on Checkpoint 1 or 2, use [UPGRADE_FROM_CHECKPOINT_2](UPGRADE_FROM_CHECKPOINT_2.md). For a fresh demo, use [START_HERE](START_HERE.md).
+## 1. Preserve the working installation
 
-## Preserve your existing installation
+1. Record the running version, Firebase project, database URL, storage location/bucket and deployment settings privately. Keep the old project/release available.
+2. Put the old app into maintenance, stop its server and other writers, and take a consistent database backup plus matching private object files. For local SQLite, stop every process using the database before copying its `data/` directory and any database sidecars. Do not copy a live SQLite main file alone while WAL writes continue.
+3. Extract Checkpoint 4 into a **new folder**. Copy your private `.env` and preserved local `data/` where applicable; deliberately retain remote database/R2 settings. Check absolute paths before running anything.
+4. Do not overwrite new source, package lockfile or build with old files. Install dependencies afresh. Keep one application instance during this upgrade.
 
-1. Stop the old server with **Ctrl+C** and stop any other process using its database or uploads.
-2. Keep a private backup of the old project and configuration.
-3. Back up the local `data/` directory consistently, including database sidecars and its private files. With remote SQL/R2, retain a provider-supported database backup and the corresponding object bytes.
-4. Extract the corrected ZIP into a new folder. Copy your private `.env` and preserved local `data/` into that new folder. Check any absolute storage paths deliberately.
-5. Keep your existing Firebase, database and storage settings. Do not run demo setup over a real-account configuration or switch the identity mode of its database.
+Do not run demo setup against real Firebase/database configuration. A freshly extracted folder is the appropriate place to try fictional users. Changing identity mode is not a data migration.
 
-Do not copy the old source, `dist`, `node_modules` or package lockfile over the corrected version. Start only one application instance against the local database during the upgrade.
+## 2. Install, snapshot, migrate and build
 
-## Build and run the correction
-
-From the new project folder:
+Use Node.js 24 and a terminal in the new project folder:
 
 ```sh
 npm pkg get version
 npm ci
+```
+
+The version must be **`0.4.0`**. With copied settings pointing to the existing database, the new backup command can snapshot that older schema **before migration**; it does not seed users or run migrations:
+
+```sh
+npm run backup -- export --output data/backups/before-cp4.ndjson
+npm run backup -- inspect --input data/backups/before-cp4.ndjson
+npm run backup -- rehearse --input data/backups/before-cp4.ndjson --target file:./data/before-cp4-rehearsal.db
+```
+
+Use unused output/target names. The private export contains SQL records and any encrypted connection credentials, not resource bytes. Preserve configuration keys separately. See [Backup and restore](BACKUP_AND_RESTORE.md).
+
+Then run:
+
+```sh
 npm run db:migrate
 npm run build
 npm test
 npm start
 ```
 
-The version command must report **`0.3.1`**. Open **http://127.0.0.1:3001** for the compiled app. For ongoing source development, use `npm run dev` and port 5173 instead; offline reopening requires the compiled build.
+Open **http://127.0.0.1:3001** for the compiled app. For editing source, use `npm run dev` and port 5173; that development server does not provide the complete offline build.
 
-This correction keeps schema versions **1–6**. No new SQL migration resets memberships or teaching schedules. The migration command remains safe to repeat and does not populate real installations with demo identities.
+## 3. What migrations preserve and change
 
-## What changes after the update
+Existing schema versions 1–6 remain. Checkpoint 4 adds:
 
-| Area                      | Corrected behavior                                                                                                                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Student screens           | Joining and reading classes, personal profile/bookmarks/checklist; shared create/edit/publish controls require confirmed class-admin permission.                                            |
-| Owner navigation          | Separate online Owner dashboard. Student Home, My classes, personal planning, Saved and Offline destinations lead the owner back to its console.                                            |
-| Owner section tools       | Semester → section → People/content/timetable/deadlines. Global authority remains available inside this workspace.                                                                          |
-| New owner-created classes | The owner is not enrolled automatically. Enroll registered university students and appoint their Class Admins.                                                                              |
-| Existing memberships      | Preserved, including legacy owner memberships. This update does not silently delete or rewrite historical enrollments.                                                                      |
-| Developer page            | Published content and private drafts are preserved. The sidebar opens a separate Meet the Developer page; the owner editor has a dedicated Developer tab.                                   |
-| Weekly timetable          | Existing recurring entries and dated overrides appear together in a full Monday–Sunday view. No re-entry of the routine is needed.                                                          |
-| Student offline data      | Existing eligible student/Class Admin snapshots keep their original seven-day expiry and device scope. Refresh them online for current information.                                         |
-| Owner offline data        | The console is online-only. Legacy owner snapshots and their in-app file copies are removed when the new store reads them; independently downloaded files remain outside the app's control. |
-| Owner identity            | A separate external owner is supported by exact verified email and pinned Firebase UID. Existing ownership is not transferred by updating source or changing `.env`.                        |
+| Version | Purpose                                                                               |
+| ------- | ------------------------------------------------------------------------------------- |
+| 7       | One section assignment, subject enrollment and hashed subject invitations.            |
+| 8       | Encrypted Drive connections, resource mappings and tracked base-storage reservations. |
+| 9       | Subject chat, posting controls and moderation.                                        |
+| 10      | Personal reminder preferences, jobs, inbox and optional device-delivery state.        |
+| 11      | Owner-curated help articles.                                                          |
+| 12      | Optional assistant usage accounting.                                                  |
 
-## Separate your owner and university accounts
+Migrations are repeatable and transactional. The migration command does not add fictional identities to real databases. Existing notices, subjects, resources, timetable, accounts and role history are preserved.
 
-The recommended arrangement is a verified Gmail owner account for administration and your university account for class participation. The Gmail address is a single private exception, paired with its Firebase UID. Other external accounts remain ineligible.
+An account with exactly one existing active section is assigned to it, and its existing subject access is populated. An older account with **multiple active sections** is marked for owner resolution instead of choosing silently. It cannot open conflicting academic content until resolved. Some conflicting pending requests also require resolution.
 
-Follow [OWNER_ACCOUNT](OWNER_ACCOUNT.md). If a university account is already the Master Admin, the guide describes the explicit server-side transfer preview and application command. Changing `MASTER_ADMIN_EMAIL` by itself does not replace the existing owner. Existing class memberships and profile data remain available after an authorized transfer, so the former university owner can continue in its assigned class role.
+Open **Owner dashboard → semester → destination section → People → Enroll or transfer a student**. Review preserved membership history, use **Transfer / resolve**, select the intended section/subjects and provide a reason. Previous section memberships become removed/rejected; they are not erased. The transferred person becomes a Student; appoint a Class Admin in the destination if appropriate. See [Sections and subjects](SECTIONS_AND_SUBJECTS.md).
 
-The source update performs no live transfer on your behalf. Enter your actual settings privately when the Firebase account is ready.
+Old class invitations remain historical records but cannot join a section. Generate new **subject codes**. Initial admission requires approval; later codes must match the student's assigned section. Class Admins create subjects inside their section; only the owner creates sections.
 
-## Refresh an installed web copy
+## 4. Storage migration is explicit
 
-Serve the new build at the same origin, finish any unsaved form, accept the app's update prompt, then reopen it. A service worker can keep an older installed interface until its update is activated. Starting an old terminal or opening a different port also shows a different build/storage origin.
+Keep `STORAGE_DRIVER` and the existing private directory/bucket for old files. Without Drive credentials, new resources continue using that base store. Once all Drive settings are configured, new resources default to connected uploader-owned Drive. Set `RESOURCE_STORAGE=base` deliberately if you need the existing destination. No error silently changes destinations.
 
-If the previous controls remain visible, first confirm `npm pkg get version` in the running project, rebuild, stop the old process, restart the corrected one and reopen the app. Check the active demo persona or actual account role. The local demo selector is not a production permission system.
+Historical resource keys remain mapped to their original storage. Enabling Drive does **not** copy existing R2 files to Google. Changing a bucket/local directory does not migrate object bytes. Plan any copy separately and preserve originals until every referenced file can be read.
 
-## Check the corrected flows
+Migration 8 counts legacy resources by recorded size and conservatively reserves 2 MiB for each old profile image, whose previous schema did not record byte size. New images use actual stored bytes. If preserved objects already exceed the default 8 GiB base budget, reads remain possible but new base uploads require cleanup or an explicitly increased budget. Owner cleanup targets only tracked, unreferenced generated objects older than one hour; it never scans arbitrary personal Drive files.
 
-1. **Student:** open Home, My classes, Noticeboard and a class. Only enrolled classes appear. There is no Create class, Post announcement, shared deadline creation, upload or timetable editor. Personal profile/bookmarks/checklist actions remain available.
-2. **Class Admin:** create a class directly, edit a subject/notice and the weekly routine in an assigned class. Check an ordinary membership in another class remains read-only.
-3. **Owner:** open a semester and section, manage People, and open that section's timetable/deadlines. Creating another section does not add the owner to its roster.
-4. **Developer:** save a private draft in the Developer tab, preview/publish it, then open Meet the Developer from the student sidebar. Unpublished content stays private.
-5. **Timetable:** confirm all seven days are present. Test one dated cancellation or move without changing the recurring routine, then refresh a student's view.
-6. **Offline:** prepare the university account online and reopen its timetable without a connection. Owner administration should require reconnection.
+## 5. Refresh installed/offline copies and verify
 
-The automated results and remaining physical-device/provider checks are in [VERIFICATION](VERIFICATION.md). A source rollback should always use its matching configuration, database and private-file backup, particularly if an owner transfer or other data changes occurred after this update.
+Deploy the compiled update at the same HTTPS origin, finish unsaved forms and accept the update prompt. Checkpoint 3 offline snapshots are intentionally incompatible with the new one-section format. University users must reconnect and prepare **Available offline** again. Independently exported downloads stay on their devices. The owner console remains online-only.
+
+Before reopening to students, verify:
+
+- Student login has no role selector or shared create/edit controls; one approved section and only enrolled subjects appear.
+- New subject admission requires approval; another section's code fails. Owner transfer removes previous access and does not carry admin rights.
+- A Class Admin manages their section's subjects, timetable, notices and deadlines, plus each subject's chat mode.
+- Existing resources and images still download. Test new PDF/DOCX and a small MP4, then Drive consent/upload/download/revocation with a non-sensitive test account when configured.
+- Global notices, Meet the Developer, reminders, Front page and CGPA controls have their intended visibility.
+- A freshly prepared student timetable reopens offline; chat and administration require connectivity.
+- A private backup and restore rehearsal succeed. Confirm matching object bytes and the encryption key remain recoverable.
+
+No live provider connection, physical-device result or thousand-user capacity is implied by local tests. Follow the acceptance list in [Checkpoint 4 guide](CHECKPOINT_4_GUIDE.md) before release. For rollback, restore the **matching old source, configuration, database and private-file snapshot**; do not point Checkpoint 3 code at an upgraded database or discard current files automatically.

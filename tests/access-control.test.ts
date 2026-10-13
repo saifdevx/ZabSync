@@ -1,3 +1,4 @@
+import { DEMO_SUBJECT_IDS } from '../server/academic.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEMO_CLASS_ID, DEMO_OTHER_CLASS_ID, DEMO_USERS } from '../server/demo.js';
@@ -81,7 +82,7 @@ test('a student cannot read another class or use class admin/owner endpoints', a
 
   const rotate = await app.inject({
     method: 'POST',
-    url: `/api/classes/${DEMO_CLASS_ID}/invite`,
+    url: `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite`,
     headers: bearer(student),
   });
   expectForbidden(rotate);
@@ -104,7 +105,7 @@ test('a student cannot read another class or use class admin/owner endpoints', a
   const admin = await demoToken(app, 'admin');
   const adminInvite = await app.inject({
     method: 'POST',
-    url: `/api/classes/${DEMO_CLASS_ID}/invite`,
+    url: `/api/subjects/${DEMO_SUBJECT_IDS.os}/invite`,
     headers: bearer(admin),
   });
   expectSuccess(adminInvite);
@@ -141,7 +142,7 @@ test('Class admin permissions are scoped to approved class membership', async (t
 
     const crossClassInvite = await app.inject({
       method: 'POST',
-      url: `/api/classes/${DEMO_OTHER_CLASS_ID}/invite`,
+      url: `/api/subjects/${DEMO_SUBJECT_IDS.other}/invite`,
       headers: bearer(token),
     });
     expectForbidden(crossClassInvite);

@@ -9,7 +9,12 @@ export type Feature =
   | 'developer'
   | 'profilePhotos'
   | 'timetable'
-  | 'deadlines';
+  | 'deadlines'
+  | 'chat'
+  | 'reminders'
+  | 'frontPage'
+  | 'cgpa'
+  | 'help';
 export interface SiteSettings {
   version: number;
   features: Record<Feature, boolean>;

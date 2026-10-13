@@ -11,7 +11,7 @@ import { makeTestConfig } from '../server/config.js';
 import { openDatabase, first } from '../server/db.js';
 import { DEMO_CLASS_ID, DEMO_OTHER_CLASS_ID, DEMO_USERS } from '../server/demo.js';
 import { ApiError } from '../server/errors.js';
-import { CLASS_STORAGE_BYTES, type PrivateStorage } from '../server/storage.js';
+import { type PrivateStorage } from '../server/storage.js';
 import {
   bearer,
   createTestApp,
@@ -246,6 +246,28 @@ test('subject management, trash and restoration preserve permission and parent b
   });
   expectSuccess(notice);
   const noticeId = notice.json().announcement.id;
+  // Newly created subjects require their own enrollment even inside the assigned section.
+  expectForbidden(
+    await app.inject({
+      method: 'GET',
+      url: `/api/announcements/${noticeId}`,
+      headers: bearer(student),
+    }),
+  );
+  const invite = await app.inject({
+    method: 'POST',
+    url: `/api/subjects/${id}/invite`,
+    headers: bearer(cr),
+  });
+  expectSuccess(invite);
+  expectSuccess(
+    await app.inject({
+      method: 'POST',
+      url: '/api/subjects/join',
+      headers: bearer(student),
+      payload: { code: invite.json().code },
+    }),
+  );
   expectSuccess(
     await app.inject({
       method: 'POST',
@@ -639,13 +661,28 @@ test('storage quota counts trash; rejected finalization removes its private obje
   const firstUpload = await upload(app, cr);
   expectSuccess(firstUpload);
   const id = firstUpload.json().resource.id;
+  const beforeUsage = await app.inject({
+    method: 'GET',
+    url: `/api/resources?classId=${DEMO_CLASS_ID}`,
+    headers: bearer(cr),
+  });
+  expectSuccess(beforeUsage);
+  const classBytes = beforeUsage.json().limits.classBytes;
+  assert.ok(Number.isSafeInteger(classBytes) && classBytes > pdf.length);
   await db.execute({
     sql: 'UPDATE resources SET size_bytes=? WHERE id=?',
-    args: [CLASS_STORAGE_BYTES - pdf.length + 1, id],
+    args: [classBytes - pdf.length + 1, id],
   });
   expectSuccess(
     await app.inject({ method: 'DELETE', url: `/api/resources/${id}`, headers: bearer(cr) }),
   );
+  const trashUsage = await app.inject({
+    method: 'GET',
+    url: `/api/resources?classId=${DEMO_CLASS_ID}`,
+    headers: bearer(cr),
+  });
+  expectSuccess(trashUsage);
+  assert.equal(trashUsage.json().storageUsedBytes, classBytes - pdf.length + 1);
   const overQuota = await upload(app, cr, { title: 'One byte over quota' });
   assert.equal(overQuota.statusCode, 409, overQuota.body);
   assert.equal(overQuota.json().error.code, 'storage_quota');

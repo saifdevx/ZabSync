@@ -4,7 +4,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createTestApp } from './helpers.js';
 
-test('the compiled checkpoint 3 app serves deep links, assets, install metadata and a complete stamped public shell while APIs stay JSON', async (t) => {
+test('the compiled checkpoint 4 app serves deep links, assets, install metadata and a complete stamped public shell while APIs stay JSON', async (t) => {
   const staticRoot = fileURLToPath(new URL('../dist/client/', import.meta.url));
   let builtHtml: string;
   try {
@@ -149,7 +149,7 @@ test('the compiled checkpoint 3 app serves deep links, assets, install metadata 
     /__ZABSYNC_(BUILD|PUBLIC_ASSETS)__/,
     'The deployable service worker must have its build marker stamped.',
   );
-  assert.match(serviceWorker.body, /zabsync-public-shell-v3-[a-f0-9]{16}/);
+  assert.match(serviceWorker.body, /zabsync-public-shell-v4-[a-f0-9]{16}/);
 
   const precacheMatch = serviceWorker.body.match(/const PUBLIC_FILES = (\[[^;]+\]);/);
   assert.ok(precacheMatch, 'The built worker has an explicit JSON public-asset list.');
